@@ -332,25 +332,21 @@ async fn handle_connection(
     let mut keep_alive = true;
     let mut buffered = Vec::with_capacity(4096);
     while keep_alive {
-        let bytes = match read_request_bytes(
-            &mut stream,
-            &mut buffered,
-            max_request_size,
-            read_timeout,
-        )
-        .await
-        {
-            Ok(request_bytes) => request_bytes,
-            Err(err) => {
-                if err.kind() == io::ErrorKind::UnexpectedEof {
+        let bytes =
+            match read_request_bytes(&mut stream, &mut buffered, max_request_size, read_timeout)
+                .await
+            {
+                Ok(request_bytes) => request_bytes,
+                Err(err) => {
+                    if err.kind() == io::ErrorKind::UnexpectedEof {
+                        return Ok(());
+                    }
+
+                    let response = response_for_read_error(&err);
+                    write_response(&mut stream, response, false).await?;
                     return Ok(());
                 }
-
-                let response = response_for_read_error(&err);
-                write_response(&mut stream, response, false).await?;
-                return Ok(());
-            }
-        };
+            };
 
         let request = match Request::from_bytes(&bytes) {
             Ok(request) => request,
@@ -574,7 +570,8 @@ fn format_allow_header(methods: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        App, expected_request_len, format_allow_header, parse_content_length, response_for_read_error,
+        App, expected_request_len, format_allow_header, parse_content_length,
+        response_for_read_error,
     };
     use crate::http::{Request, Response};
     use std::time::Duration;
