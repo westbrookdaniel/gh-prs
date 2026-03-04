@@ -275,23 +275,41 @@ pub fn parse_preflight_auth(json: &str) -> Result<Vec<String>, String> {
     let mut hosts: Vec<String> = raw
         .hosts
         .iter()
-        .filter_map(|(host, value)| {
-            if value.is_null() {
-                return None;
-            }
-            if value
-                .get("status")
-                .and_then(Value::as_str)
-                .map(|status| status.to_ascii_lowercase().contains("logged out"))
-                == Some(true)
-            {
-                return None;
-            }
-            Some(host.clone())
-        })
+        .filter_map(|(host, value)| host_is_authenticated(value).then_some(host.clone()))
         .collect();
     hosts.sort();
     Ok(hosts)
+}
+
+fn host_is_authenticated(value: &Value) -> bool {
+    if value.is_null() {
+        return false;
+    }
+
+    if let Some(array) = value.as_array() {
+        return array.iter().any(host_is_authenticated);
+    }
+
+    if value
+        .get("active")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    let state = value
+        .get("state")
+        .or_else(|| value.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if state.contains("logged out") {
+        return false;
+    }
+
+    state.contains("success") || state.contains("logged in")
 }
 
 pub fn parse_pull_request_list(json: &str) -> Result<Vec<PullRequestListItem>, String> {
@@ -602,6 +620,24 @@ mod tests {
             "hosts": {
                 "github.com": {"status": "logged in"},
                 "ghe.local": {"status": "logged out"}
+            }
+        }"#;
+
+        let hosts = parse_preflight_auth(json).expect("auth should parse");
+        assert_eq!(hosts, vec!["github.com".to_string()]);
+    }
+
+    #[test]
+    fn parses_authenticated_hosts_from_cli_array_shape() {
+        let json = r#"{
+            "hosts": {
+                "github.com": [
+                    {
+                        "state": "success",
+                        "active": true,
+                        "login": "octocat"
+                    }
+                ]
             }
         }"#;
 
