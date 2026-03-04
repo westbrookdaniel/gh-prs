@@ -1,8 +1,8 @@
 mod http;
 
 use askama::Template;
-use http::{App, Request, Response, logger};
-use std::path::{Component, PathBuf};
+use http::{App, Request, Response, cors, logger, request_id, security_headers};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -32,7 +32,12 @@ async fn assets(request: Request) -> Response {
         return Response::not_found().text_body("Not Found");
     };
 
-    let mut full_path = PathBuf::from("assets");
+    let assets_root = match std::fs::canonicalize("assets") {
+        Ok(path) => path,
+        Err(_) => return Response::internal_server_error().text_body("Asset root unavailable"),
+    };
+
+    let mut full_path = assets_root.clone();
     for component in PathBuf::from(path).components() {
         match component {
             Component::Normal(part) => full_path.push(part),
@@ -40,12 +45,26 @@ async fn assets(request: Request) -> Response {
         }
     }
 
-    match std::fs::read(&full_path) {
+    let canonical_target = match std::fs::canonicalize(&full_path) {
+        Ok(path) => path,
+        Err(_) => return Response::not_found().text_body("Not Found"),
+    };
+
+    if !canonical_target.starts_with(&assets_root) {
+        return Response::bad_request().text_body("Invalid asset path");
+    }
+
+    match read_file_bytes(&canonical_target).await {
         Ok(bytes) => {
-            let content_type = match full_path.extension().and_then(|ext| ext.to_str()) {
+            let content_type = match canonical_target.extension().and_then(|ext| ext.to_str()) {
                 Some("css") => "text/css; charset=utf-8",
                 Some("js") => "application/javascript; charset=utf-8",
                 Some("html") => "text/html; charset=utf-8",
+                Some("json") => "application/json; charset=utf-8",
+                Some("svg") => "image/svg+xml",
+                Some("png") => "image/png",
+                Some("jpg") | Some("jpeg") => "image/jpeg",
+                Some("gif") => "image/gif",
                 _ => "application/octet-stream",
             };
 
@@ -57,6 +76,11 @@ async fn assets(request: Request) -> Response {
     }
 }
 
+async fn read_file_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
+    let path = path.to_path_buf();
+    smol::unblock(move || std::fs::read(path)).await
+}
+
 async fn not_found(request: Request) -> Response {
     let path = request.param("path").unwrap_or_default();
     Response::not_found().text_body(format!("Not Found: /{path}"))
@@ -65,6 +89,13 @@ async fn not_found(request: Request) -> Response {
 fn main() -> std::io::Result<()> {
     smol::block_on(async {
         App::new()
+            .middleware(request_id())
+            .middleware(security_headers())
+            .middleware(cors(
+                "*",
+                "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+                "Content-Type, Authorization",
+            ))
             .middleware(logger())
             .get("/", hello)
             .get("/users/:id", user_by_id)

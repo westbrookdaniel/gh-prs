@@ -3,7 +3,10 @@ use crate::http::{Request, Response};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Instant;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 pub type MiddlewareFuture = Pin<Box<dyn Future<Output = Response> + Send + 'static>>;
 pub type MiddlewareFn = Arc<dyn Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static>;
@@ -59,9 +62,132 @@ pub fn logger() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 's
     }
 }
 
+pub fn request_id() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
+    |request: Request, next: Next| {
+        Box::pin(async move {
+            let request_id = request
+                .header("x-request-id")
+                .filter(|value| {
+                    !value.trim().is_empty()
+                        && value.len() <= 128
+                        && !value.contains('\r')
+                        && !value.contains('\n')
+                })
+                .map(str::to_owned)
+                .unwrap_or_else(generate_request_id);
+
+            next.run(request).await.header("X-Request-Id", request_id)
+        })
+    }
+}
+
+fn generate_request_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let sequence = REQUEST_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("req-{nanos:x}-{sequence:x}")
+}
+
+pub fn security_headers() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
+    |request: Request, next: Next| {
+        Box::pin(async move {
+            next.run(request)
+                .await
+                .header_if_missing("X-Frame-Options", "DENY")
+                .header_if_missing("Referrer-Policy", "strict-origin-when-cross-origin")
+                .header_if_missing(
+                    "Permissions-Policy",
+                    "geolocation=(), microphone=(), camera=()",
+                )
+                .header_if_missing("Cross-Origin-Resource-Policy", "same-origin")
+        })
+    }
+}
+
+pub fn cors(
+    allow_origin: &'static str,
+    allow_methods: &'static str,
+    allow_headers: &'static str,
+) -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
+    move |request: Request, next: Next| {
+        Box::pin(async move {
+            let mut response = next
+                .run(request)
+                .await
+                .header_if_missing("Access-Control-Allow-Origin", allow_origin)
+                .header_if_missing("Access-Control-Allow-Methods", allow_methods)
+                .header_if_missing("Access-Control-Allow-Headers", allow_headers)
+                .header_if_missing("Vary", "Origin");
+
+            if response.status_code() == 204 {
+                response = response.header_if_missing("Access-Control-Max-Age", "600");
+            }
+
+            response
+        })
+    }
+}
+
+pub fn rate_limit(
+    max_requests: u32,
+    window: std::time::Duration,
+) -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
+    let state = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<
+        String,
+        (u32, std::time::Instant),
+    >::new()));
+
+    move |request: Request, next: Next| {
+        let state = Arc::clone(&state);
+        Box::pin(async move {
+            let key = request
+                .header("x-forwarded-for")
+                .and_then(|value| value.split(',').next())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let now = std::time::Instant::now();
+            let mut limited = false;
+            let mut retry_after = 1u64;
+
+            if let Ok(mut buckets) = state.lock() {
+                let entry = buckets.entry(key).or_insert((0, now));
+                if now.duration_since(entry.1) >= window {
+                    *entry = (0, now);
+                }
+
+                entry.0 = entry.0.saturating_add(1);
+                if entry.0 > max_requests {
+                    limited = true;
+                    retry_after = window
+                        .saturating_sub(now.duration_since(entry.1))
+                        .as_secs()
+                        .max(1);
+                }
+
+                if buckets.len() > 4096 {
+                    buckets.retain(|_, (_, started)| now.duration_since(*started) < window);
+                }
+            }
+
+            if limited {
+                return Response::new(429, "Too Many Requests")
+                    .header("Retry-After", retry_after.to_string())
+                    .text_body("Too Many Requests");
+            }
+
+            next.run(request).await
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{MiddlewareFn, Next, dispatch};
+    use super::{MiddlewareFn, Next, cors, dispatch, rate_limit, request_id, security_headers};
     use crate::http::router::Handler;
     use crate::http::{Request, Response};
     use std::sync::{Arc, Mutex};
@@ -171,6 +297,78 @@ mod tests {
 
             assert_eq!(response.status_code(), 401);
             assert!(!*handler_called.lock().expect("flag lock"));
+        });
+    }
+
+    #[test]
+    fn request_id_is_added_when_missing() {
+        smol::block_on(async {
+            let endpoint: Handler =
+                Arc::new(move |_request: Request| Box::pin(async { Response::ok() }));
+            let middleware: MiddlewareFn = Arc::new(request_id());
+
+            let response =
+                dispatch(0, test_request("/"), Arc::new(vec![middleware]), endpoint).await;
+            let raw =
+                String::from_utf8(response.to_http_bytes()).expect("response should be utf-8");
+
+            assert!(raw.contains("X-Request-Id: req-"));
+        });
+    }
+
+    #[test]
+    fn security_headers_are_added() {
+        smol::block_on(async {
+            let endpoint: Handler =
+                Arc::new(move |_request: Request| Box::pin(async { Response::ok() }));
+            let middleware: MiddlewareFn = Arc::new(security_headers());
+
+            let response =
+                dispatch(0, test_request("/"), Arc::new(vec![middleware]), endpoint).await;
+            let raw =
+                String::from_utf8(response.to_http_bytes()).expect("response should be utf-8");
+
+            assert!(raw.contains("X-Frame-Options: DENY"));
+            assert!(raw.contains("Referrer-Policy: strict-origin-when-cross-origin"));
+        });
+    }
+
+    #[test]
+    fn cors_headers_are_added() {
+        smol::block_on(async {
+            let endpoint: Handler =
+                Arc::new(move |_request: Request| Box::pin(async { Response::no_content() }));
+            let middleware: MiddlewareFn = Arc::new(cors("*", "GET, POST", "Content-Type"));
+
+            let response =
+                dispatch(0, test_request("/"), Arc::new(vec![middleware]), endpoint).await;
+            let raw =
+                String::from_utf8(response.to_http_bytes()).expect("response should be utf-8");
+
+            assert!(raw.contains("Access-Control-Allow-Origin: *"));
+            assert!(raw.contains("Access-Control-Max-Age: 600"));
+        });
+    }
+
+    #[test]
+    fn rate_limit_returns_429_after_threshold() {
+        smol::block_on(async {
+            let endpoint: Handler =
+                Arc::new(move |_request: Request| Box::pin(async { Response::ok() }));
+            let middleware: MiddlewareFn =
+                Arc::new(rate_limit(1, std::time::Duration::from_secs(60)));
+
+            let first = dispatch(
+                0,
+                test_request("/"),
+                Arc::new(vec![Arc::clone(&middleware)]),
+                Arc::clone(&endpoint),
+            )
+            .await;
+            let second = dispatch(0, test_request("/"), Arc::new(vec![middleware]), endpoint).await;
+
+            assert_eq!(first.status_code(), 200);
+            assert_eq!(second.status_code(), 429);
         });
     }
 }
