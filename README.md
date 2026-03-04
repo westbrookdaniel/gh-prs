@@ -7,19 +7,17 @@ Local-first web UI for GitHub pull requests, built with Rust, a custom `smol` HT
 - Rust toolchain (`cargo`)
 - GitHub CLI (`gh`) installed and on `PATH`
 - Authenticated GitHub CLI session (`gh auth login`)
-- Repository context available either from:
-  - `--repo OWNER/REPO`, or
-  - current working directory with a configured Git remote
+- GitHub account/org access to repositories you want included in search
 
 ## Run
 
 ```bash
-cargo run -- --repo OWNER/REPO --port 3000
+cargo run -- --port 3000
 ```
 
 Optional flags:
 
-- `--repo OWNER/REPO` (preferred explicit repo)
+- `--repo OWNER/REPO` (optional startup repo context for metadata/fallback detail routing)
 - `--port PORT` (binds to `127.0.0.1:PORT`)
 - `--bind 127.0.0.1:PORT` (explicit bind; localhost only)
 
@@ -27,10 +25,10 @@ Optional flags:
 
 - `GET /` → redirects to `/prs`
 - `GET /health` → JSON health/status payload
-- `GET /prs` → PR list (up to 100, all states)
-- `GET /prs/:number` → PR detail + discussion + review context
-- `POST /prs/:number/comment` → submit top-level PR comment
-- `POST /prs/:number/review` → submit review (`approve|comment|request_changes`)
+- `GET /prs` → cross-repo PR search list (up to 100) with filters/sort via query params
+- `GET /repos/:owner/:repo/prs/:number` → repo-aware PR detail + discussion + review context
+- `POST /repos/:owner/:repo/prs/:number/comment` → submit top-level PR comment
+- `POST /repos/:owner/:repo/prs/:number/review` → submit review (`approve|comment|request_changes`)
 
 ## Testing
 
@@ -40,21 +38,22 @@ Run the test suite:
 cargo test
 ```
 
-Current suite covers CLI command argument generation, JSON parsing, input validation, error mapping, and handler-level flows.
+Current suite covers cross-repo search argument generation, cache behavior, JSON parsing, input validation, error mapping, and handler-level flows.
 
 ## Manual MVP Checklist
 
-1. Start app with an authenticated repo:
-   - `cargo run -- --repo OWNER/REPO --port 3000`
+1. Start app:
+   - `cargo run -- --port 3000`
 2. Open `http://127.0.0.1:3000/prs`:
-   - list renders, rows link to detail pages
-3. Open a PR detail page `http://127.0.0.1:3000/prs/<number>`:
+   - cross-repo list renders with filters and sorting controls
+3. Open a PR detail page from the list (`/repos/:owner/:repo/prs/:number`):
    - header, checks, comments, reviews, and review comments render
-4. Submit a comment from the form:
+4. Submit a comment from the detail form:
    - redirected back with success/error flash message
 5. Submit each review action (`approve`, `comment`, `request_changes`):
    - redirected back with success/error flash message
-6. Validate error UX:
+6. Refresh `/prs` twice and confirm cache hit log appears (`[gh] class=pr.search cache=hit`)
+7. Validate error UX:
    - unauthenticated `gh` or missing repo shows actionable error guidance
 
 ## Troubleshooting
