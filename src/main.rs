@@ -1,7 +1,10 @@
 mod http;
 
 use askama::Template;
-use http::{App, Request, Response, StaticDir, cors, logger, request_id, security_headers};
+use http::{
+    App, Request, Response, StaticDirOptions, cors, logger, request_id, security_headers,
+    static_dir,
+};
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -33,6 +36,14 @@ async fn not_found(request: Request) -> Response {
 
 fn main() -> std::io::Result<()> {
     smol::block_on(async {
+        let static_assets = StaticDirOptions {
+            url_prefix: "/assets".to_string(),
+            root: "assets".into(),
+            cache_control: Some("public, max-age=86400".to_string()),
+            fallthrough: true,
+            ..StaticDirOptions::default()
+        };
+
         App::new()
             .middleware(request_id())
             .middleware(security_headers())
@@ -42,12 +53,7 @@ fn main() -> std::io::Result<()> {
                 "Content-Type, Authorization",
             ))
             .middleware(logger())
-            .middleware(
-                StaticDir::builder("/assets", "assets")
-                    .cache_control("public, max-age=86400")
-                    .fallthrough(true)
-                    .into_middleware(),
-            )
+            .middleware(static_dir(static_assets))
             .get("/", hello)
             .get("/users/:id", user_by_id)
             .any("/*path", not_found)

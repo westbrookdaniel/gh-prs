@@ -14,29 +14,24 @@ static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
 pub struct StaticDirOptions {
-    index_file: Option<String>,
-    cache_control: Option<String>,
-    etag: bool,
-    memory_cache: bool,
-    cache_ttl: Duration,
-    cache_max_entries: usize,
-    cache_max_bytes: usize,
-    fallthrough: bool,
-    allow_dotfiles: bool,
-}
-
-pub struct StaticDir;
-
-#[derive(Clone, Debug)]
-pub struct StaticDirBuilder {
-    url_prefix: String,
-    root: PathBuf,
-    options: StaticDirOptions,
+    pub url_prefix: String,
+    pub root: PathBuf,
+    pub index_file: Option<String>,
+    pub cache_control: Option<String>,
+    pub etag: bool,
+    pub memory_cache: bool,
+    pub cache_ttl: Duration,
+    pub cache_max_entries: usize,
+    pub cache_max_bytes: usize,
+    pub fallthrough: bool,
+    pub allow_dotfiles: bool,
 }
 
 impl Default for StaticDirOptions {
     fn default() -> Self {
         Self {
+            url_prefix: "/".to_string(),
+            root: PathBuf::from("."),
             index_file: Some("index.html".to_string()),
             cache_control: Some("public, max-age=300".to_string()),
             etag: true,
@@ -47,127 +42,6 @@ impl Default for StaticDirOptions {
             fallthrough: true,
             allow_dotfiles: false,
         }
-    }
-}
-
-impl StaticDirOptions {
-    pub fn index_file(mut self, index_file: impl Into<String>) -> Self {
-        self.index_file = Some(index_file.into());
-        self
-    }
-
-    pub fn no_index(mut self) -> Self {
-        self.index_file = None;
-        self
-    }
-
-    pub fn cache_control(mut self, cache_control: impl Into<String>) -> Self {
-        self.cache_control = Some(cache_control.into());
-        self
-    }
-
-    pub fn no_cache_control(mut self) -> Self {
-        self.cache_control = None;
-        self
-    }
-
-    pub fn etag(mut self, enabled: bool) -> Self {
-        self.etag = enabled;
-        self
-    }
-
-    pub fn memory_cache(mut self, enabled: bool) -> Self {
-        self.memory_cache = enabled;
-        self
-    }
-
-    pub fn cache_ttl(mut self, ttl: Duration) -> Self {
-        self.cache_ttl = ttl;
-        self
-    }
-
-    pub fn cache_limits(mut self, max_entries: usize, max_bytes: usize) -> Self {
-        self.cache_max_entries = max_entries.max(1);
-        self.cache_max_bytes = max_bytes.max(1024);
-        self
-    }
-
-    pub fn fallthrough(mut self, enabled: bool) -> Self {
-        self.fallthrough = enabled;
-        self
-    }
-
-    pub fn allow_dotfiles(mut self, enabled: bool) -> Self {
-        self.allow_dotfiles = enabled;
-        self
-    }
-}
-
-impl StaticDir {
-    pub fn builder(url_prefix: impl Into<String>, root: impl Into<PathBuf>) -> StaticDirBuilder {
-        StaticDirBuilder {
-            url_prefix: url_prefix.into(),
-            root: root.into(),
-            options: StaticDirOptions::default(),
-        }
-    }
-}
-
-impl StaticDirBuilder {
-    pub fn index_file(mut self, index_file: impl Into<String>) -> Self {
-        self.options = self.options.index_file(index_file);
-        self
-    }
-
-    pub fn no_index(mut self) -> Self {
-        self.options = self.options.no_index();
-        self
-    }
-
-    pub fn cache_control(mut self, cache_control: impl Into<String>) -> Self {
-        self.options = self.options.cache_control(cache_control);
-        self
-    }
-
-    pub fn no_cache_control(mut self) -> Self {
-        self.options = self.options.no_cache_control();
-        self
-    }
-
-    pub fn etag(mut self, enabled: bool) -> Self {
-        self.options = self.options.etag(enabled);
-        self
-    }
-
-    pub fn memory_cache(mut self, enabled: bool) -> Self {
-        self.options = self.options.memory_cache(enabled);
-        self
-    }
-
-    pub fn cache_ttl(mut self, ttl: Duration) -> Self {
-        self.options = self.options.cache_ttl(ttl);
-        self
-    }
-
-    pub fn cache_limits(mut self, max_entries: usize, max_bytes: usize) -> Self {
-        self.options = self.options.cache_limits(max_entries, max_bytes);
-        self
-    }
-
-    pub fn fallthrough(mut self, enabled: bool) -> Self {
-        self.options = self.options.fallthrough(enabled);
-        self
-    }
-
-    pub fn allow_dotfiles(mut self, enabled: bool) -> Self {
-        self.options = self.options.allow_dotfiles(enabled);
-        self
-    }
-
-    pub fn into_middleware(
-        self,
-    ) -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
-        static_dir(self.url_prefix, self.root, self.options)
     }
 }
 
@@ -206,12 +80,10 @@ pub(crate) fn dispatch(
 }
 
 pub fn static_dir(
-    url_prefix: impl Into<String>,
-    root: impl Into<PathBuf>,
     options: StaticDirOptions,
 ) -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
-    let normalized_prefix = normalize_prefix(&url_prefix.into());
-    let canonical_root = std::fs::canonicalize(root.into()).ok();
+    let normalized_prefix = normalize_prefix(&options.url_prefix);
+    let canonical_root = std::fs::canonicalize(&options.root).ok();
     let cache = Arc::new(Mutex::new(StaticFileCache::new(
         options.cache_max_entries,
         options.cache_max_bytes,
@@ -713,7 +585,7 @@ fn content_type_for_path(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        MiddlewareFn, Next, StaticDir, StaticDirOptions, cors, dispatch, rate_limit, request_id,
+        MiddlewareFn, Next, StaticDirOptions, cors, dispatch, rate_limit, request_id,
         security_headers, static_dir,
     };
     use crate::http::router::Handler;
@@ -937,11 +809,11 @@ mod tests {
 
             let endpoint: Handler =
                 Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
-            let middleware: MiddlewareFn = Arc::new(static_dir(
-                "/assets",
-                root.clone(),
-                StaticDirOptions::default(),
-            ));
+            let middleware: MiddlewareFn = Arc::new(static_dir(StaticDirOptions {
+                url_prefix: "/assets".to_string(),
+                root: root.clone(),
+                ..StaticDirOptions::default()
+            }));
 
             let response = dispatch(
                 0,
@@ -969,11 +841,11 @@ mod tests {
 
             let endpoint: Handler =
                 Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
-            let middleware: MiddlewareFn = Arc::new(static_dir(
-                "/assets",
-                root.clone(),
-                StaticDirOptions::default(),
-            ));
+            let middleware: MiddlewareFn = Arc::new(static_dir(StaticDirOptions {
+                url_prefix: "/assets".to_string(),
+                root: root.clone(),
+                ..StaticDirOptions::default()
+            }));
 
             let response = dispatch(
                 0,
@@ -996,11 +868,11 @@ mod tests {
 
             let endpoint: Handler =
                 Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
-            let middleware: MiddlewareFn = Arc::new(static_dir(
-                "/assets",
-                root.clone(),
-                StaticDirOptions::default(),
-            ));
+            let middleware: MiddlewareFn = Arc::new(static_dir(StaticDirOptions {
+                url_prefix: "/assets".to_string(),
+                root: root.clone(),
+                ..StaticDirOptions::default()
+            }));
 
             let response = dispatch(
                 0,
@@ -1029,11 +901,12 @@ mod tests {
 
             let endpoint: Handler =
                 Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
-            let middleware: MiddlewareFn = Arc::new(static_dir(
-                "/assets",
-                root.clone(),
-                StaticDirOptions::default().cache_ttl(std::time::Duration::from_secs(30)),
-            ));
+            let middleware: MiddlewareFn = Arc::new(static_dir(StaticDirOptions {
+                url_prefix: "/assets".to_string(),
+                root: root.clone(),
+                cache_ttl: std::time::Duration::from_secs(30),
+                ..StaticDirOptions::default()
+            }));
             let stack = Arc::new(vec![middleware]);
 
             let first = dispatch(
@@ -1070,25 +943,26 @@ mod tests {
     }
 
     #[test]
-    fn static_dir_builder_can_build_middleware() {
+    fn static_dir_options_object_can_build_middleware() {
         smol::block_on(async {
             let root = temp_dir("static-builder");
             fs::write(root.join("builder.txt"), "ok").expect("fixture file should be written");
 
             let endpoint: Handler =
                 Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
-            let middleware: MiddlewareFn = Arc::new(
-                StaticDir::builder("/assets", root.clone())
-                    .no_index()
-                    .cache_control("public, max-age=120")
-                    .etag(true)
-                    .memory_cache(true)
-                    .cache_ttl(std::time::Duration::from_secs(30))
-                    .cache_limits(10, 1024 * 1024)
-                    .fallthrough(true)
-                    .allow_dotfiles(false)
-                    .into_middleware(),
-            );
+            let middleware: MiddlewareFn = Arc::new(static_dir(StaticDirOptions {
+                url_prefix: "/assets".to_string(),
+                root: root.clone(),
+                index_file: None,
+                cache_control: Some("public, max-age=120".to_string()),
+                etag: true,
+                memory_cache: true,
+                cache_ttl: std::time::Duration::from_secs(30),
+                cache_max_entries: 10,
+                cache_max_bytes: 1024 * 1024,
+                fallthrough: true,
+                allow_dotfiles: false,
+            }));
 
             let response = dispatch(
                 0,
