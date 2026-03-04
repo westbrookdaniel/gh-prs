@@ -1,4 +1,5 @@
-use crate::http::router::{ResolveResult, Router};
+use crate::http::middleware::{MiddlewareFn, Next, dispatch};
+use crate::http::router::{Handler, ResolveResult, Router};
 use crate::http::{Request, Response};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::io::{AsyncReadExt, AsyncWriteExt};
@@ -9,12 +10,14 @@ const MAX_REQUEST_SIZE: usize = 1024 * 1024;
 
 pub struct App {
     router: Router,
+    middlewares: Vec<MiddlewareFn>,
 }
 
 impl App {
     pub fn new() -> Self {
         Self {
             router: Router::new(),
+            middlewares: Vec::new(),
         }
     }
 
@@ -51,15 +54,29 @@ impl App {
         self
     }
 
+    pub fn r#use<F, Fut>(mut self, middleware: F) -> Self
+    where
+        F: Fn(Request, Next) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Response> + Send + 'static,
+    {
+        self.middlewares.push(Arc::new(move |request, next| {
+            Box::pin(middleware(request, next))
+        }));
+        self
+    }
+
     pub async fn serve(self, address: &str) -> io::Result<()> {
         let listener = TcpListener::bind(address).await?;
         let router = Arc::new(self.router);
+        let middlewares = Arc::new(self.middlewares);
+        println!("[startup] listening on http://{address}");
 
         loop {
             let (stream, _) = listener.accept().await?;
             let router = Arc::clone(&router);
+            let middlewares = Arc::clone(&middlewares);
             smol::spawn(async move {
-                if let Err(err) = handle_connection(stream, router).await {
+                if let Err(err) = handle_connection(stream, router, middlewares).await {
                     eprintln!("connection error: {err}");
                 }
             })
@@ -68,7 +85,11 @@ impl App {
     }
 }
 
-async fn handle_connection(mut stream: TcpStream, router: Arc<Router>) -> io::Result<()> {
+async fn handle_connection(
+    mut stream: TcpStream,
+    router: Arc<Router>,
+    middlewares: Arc<Vec<MiddlewareFn>>,
+) -> io::Result<()> {
     let bytes = read_request_bytes(&mut stream).await?;
     let request = match Request::from_bytes(&bytes) {
         Ok(request) => request,
@@ -84,16 +105,23 @@ async fn handle_connection(mut stream: TcpStream, router: Arc<Router>) -> io::Re
 
     let method = request.method.clone();
     let path = request.path.clone();
-    let response = match router.resolve(&method, &path) {
-        ResolveResult::Found { handler, params } => {
-            let request = request.with_params(params);
-            handler(request).await
-        }
-        ResolveResult::MethodNotAllowed => {
-            Response::method_not_allowed().text_body("Method Not Allowed")
-        }
-        ResolveResult::NotFound => Response::not_found().text_body("Not Found"),
+    let (request, endpoint): (Request, Handler) = match router.resolve(&method, &path) {
+        ResolveResult::Found { handler, params } => (request.with_params(params), handler),
+        ResolveResult::MethodNotAllowed => (
+            request,
+            Arc::new(|_request: Request| {
+                Box::pin(async { Response::method_not_allowed().text_body("Method Not Allowed") })
+            }),
+        ),
+        ResolveResult::NotFound => (
+            request,
+            Arc::new(|_request: Request| {
+                Box::pin(async { Response::not_found().text_body("Not Found") })
+            }),
+        ),
     };
+
+    let response = dispatch(0, request, middlewares, endpoint).await;
 
     write_response(&mut stream, response).await
 }

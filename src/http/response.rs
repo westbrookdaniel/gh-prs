@@ -81,6 +81,10 @@ impl Response {
         self
     }
 
+    pub fn status_code(&self) -> u16 {
+        self.status_code
+    }
+
     pub fn to_http_bytes(&self) -> Vec<u8> {
         let mut response = format!("HTTP/1.1 {} {}\r\n", self.status_code, self.reason_phrase);
 
