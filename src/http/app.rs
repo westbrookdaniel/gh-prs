@@ -1,16 +1,42 @@
 use crate::http::middleware::{MiddlewareFn, Next, dispatch};
+use crate::http::request::{find_bytes, parse_content_length_from_head};
 use crate::http::router::{Handler, ResolveResult, Router};
 use crate::http::{Request, Response};
 use async_net::{TcpListener, TcpStream};
+use futures_lite::future;
 use futures_lite::io::{AsyncReadExt, AsyncWriteExt};
+use std::future::Future;
 use std::io;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
-const MAX_REQUEST_SIZE: usize = 1024 * 1024;
+const DEFAULT_MAX_REQUEST_SIZE: usize = 1024 * 1024;
+const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_MAX_CONNECTIONS: usize = 1024;
 
 pub struct App {
     router: Router,
     middlewares: Vec<MiddlewareFn>,
+    max_request_size: usize,
+    read_timeout: Duration,
+    max_connections: usize,
+}
+
+struct ActiveConnectionGuard {
+    active_connections: Arc<AtomicUsize>,
+}
+
+impl ActiveConnectionGuard {
+    fn new(active_connections: Arc<AtomicUsize>) -> Self {
+        Self { active_connections }
+    }
+}
+
+impl Drop for ActiveConnectionGuard {
+    fn drop(&mut self) {
+        self.active_connections.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 impl App {
@@ -18,46 +44,184 @@ impl App {
         Self {
             router: Router::new(),
             middlewares: Vec::new(),
+            max_request_size: DEFAULT_MAX_REQUEST_SIZE,
+            read_timeout: DEFAULT_READ_TIMEOUT,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
         }
     }
 
-    pub fn get<F, Fut>(mut self, pattern: &str, handler: F) -> Self
-    where
-        F: Fn(Request) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = Response> + Send + 'static,
-    {
-        self.router
-            .add_route("GET", pattern, handler)
-            .expect("invalid GET route pattern");
+    pub fn max_request_size(mut self, bytes: usize) -> Self {
+        self.max_request_size = bytes.max(1024);
         self
     }
 
-    pub fn post<F, Fut>(mut self, pattern: &str, handler: F) -> Self
-    where
-        F: Fn(Request) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = Response> + Send + 'static,
-    {
-        self.router
-            .add_route("POST", pattern, handler)
-            .expect("invalid POST route pattern");
+    pub fn read_timeout(mut self, timeout: Duration) -> Self {
+        self.read_timeout = timeout;
         self
     }
 
-    pub fn any<F, Fut>(mut self, pattern: &str, handler: F) -> Self
+    pub fn max_connections(mut self, max_connections: usize) -> Self {
+        self.max_connections = max_connections.max(1);
+        self
+    }
+
+    pub fn route<F, Fut>(mut self, method: &str, pattern: &str, handler: F) -> Self
     where
         F: Fn(Request) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = Response> + Send + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
     {
         self.router
-            .add_route("ANY", pattern, handler)
-            .expect("invalid ANY route pattern");
+            .add_route(method, pattern, handler)
+            .expect("invalid route pattern");
         self
+    }
+
+    pub fn get<F, Fut>(self, pattern: &str, handler: F) -> Self
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.route("GET", pattern, handler)
+    }
+
+    pub fn post<F, Fut>(self, pattern: &str, handler: F) -> Self
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.route("POST", pattern, handler)
+    }
+
+    pub fn put<F, Fut>(self, pattern: &str, handler: F) -> Self
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.route("PUT", pattern, handler)
+    }
+
+    pub fn patch<F, Fut>(self, pattern: &str, handler: F) -> Self
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.route("PATCH", pattern, handler)
+    }
+
+    pub fn delete<F, Fut>(self, pattern: &str, handler: F) -> Self
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.route("DELETE", pattern, handler)
+    }
+
+    pub fn head<F, Fut>(self, pattern: &str, handler: F) -> Self
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.route("HEAD", pattern, handler)
+    }
+
+    pub fn options<F, Fut>(self, pattern: &str, handler: F) -> Self
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.route("OPTIONS", pattern, handler)
+    }
+
+    pub fn any<F, Fut>(self, pattern: &str, handler: F) -> Self
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.route("ANY", pattern, handler)
+    }
+
+    pub fn try_route<F, Fut>(
+        mut self,
+        method: &str,
+        pattern: &str,
+        handler: F,
+    ) -> Result<Self, String>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.router.add_route(method, pattern, handler)?;
+        Ok(self)
+    }
+
+    pub fn try_get<F, Fut>(self, pattern: &str, handler: F) -> Result<Self, String>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.try_route("GET", pattern, handler)
+    }
+
+    pub fn try_post<F, Fut>(self, pattern: &str, handler: F) -> Result<Self, String>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.try_route("POST", pattern, handler)
+    }
+
+    pub fn try_put<F, Fut>(self, pattern: &str, handler: F) -> Result<Self, String>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.try_route("PUT", pattern, handler)
+    }
+
+    pub fn try_patch<F, Fut>(self, pattern: &str, handler: F) -> Result<Self, String>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.try_route("PATCH", pattern, handler)
+    }
+
+    pub fn try_delete<F, Fut>(self, pattern: &str, handler: F) -> Result<Self, String>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.try_route("DELETE", pattern, handler)
+    }
+
+    pub fn try_head<F, Fut>(self, pattern: &str, handler: F) -> Result<Self, String>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.try_route("HEAD", pattern, handler)
+    }
+
+    pub fn try_options<F, Fut>(self, pattern: &str, handler: F) -> Result<Self, String>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.try_route("OPTIONS", pattern, handler)
+    }
+
+    pub fn try_any<F, Fut>(self, pattern: &str, handler: F) -> Result<Self, String>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
+    {
+        self.try_route("ANY", pattern, handler)
     }
 
     pub fn middleware<F, Fut>(mut self, middleware: F) -> Self
     where
         F: Fn(Request, Next) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = Response> + Send + 'static,
+        Fut: Future<Output = Response> + Send + 'static,
     {
         self.middlewares.push(Arc::new(move |request, next| {
             Box::pin(middleware(request, next))
@@ -66,85 +230,272 @@ impl App {
     }
 
     pub async fn serve(self, address: &str) -> io::Result<()> {
+        self.serve_with_shutdown(address, future::pending::<()>())
+            .await
+    }
+
+    pub async fn serve_with_shutdown<F>(self, address: &str, shutdown: F) -> io::Result<()>
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
         let listener = TcpListener::bind(address).await?;
         let router = Arc::new(self.router);
         let middlewares = Arc::new(self.middlewares);
+        let active_connections = Arc::new(AtomicUsize::new(0));
+        let max_request_size = self.max_request_size;
+        let read_timeout = self.read_timeout;
+        let max_connections = self.max_connections;
+        let (shutdown_tx, shutdown_rx) = async_channel::bounded::<()>(1);
+
+        smol::spawn(async move {
+            shutdown.await;
+            let _ = shutdown_tx.send(()).await;
+        })
+        .detach();
+
         println!("[startup] listening on http://{address}");
 
         loop {
-            let (stream, _) = listener.accept().await?;
+            let event = future::or(
+                async {
+                    let _ = shutdown_rx.recv().await;
+                    AcceptEvent::Shutdown
+                },
+                async {
+                    match listener.accept().await {
+                        Ok((stream, _)) => AcceptEvent::Accepted(stream),
+                        Err(err) => AcceptEvent::AcceptError(err),
+                    }
+                },
+            )
+            .await;
+
+            let mut stream = match event {
+                AcceptEvent::Shutdown => break,
+                AcceptEvent::AcceptError(err) => return Err(err),
+                AcceptEvent::Accepted(stream) => stream,
+            };
+
+            let previous = active_connections.fetch_add(1, Ordering::AcqRel);
+            if previous >= max_connections {
+                active_connections.fetch_sub(1, Ordering::AcqRel);
+                let response = Response::new(503, "Service Unavailable")
+                    .header("Retry-After", "1")
+                    .text_body("Server Busy");
+                write_response(&mut stream, response, false).await?;
+                continue;
+            }
+
             let router = Arc::clone(&router);
             let middlewares = Arc::clone(&middlewares);
+            let guard = ActiveConnectionGuard::new(Arc::clone(&active_connections));
+
             smol::spawn(async move {
-                if let Err(err) = handle_connection(stream, router, middlewares).await {
+                let _guard = guard;
+                if let Err(err) =
+                    handle_connection(stream, router, middlewares, read_timeout, max_request_size)
+                        .await
+                {
                     eprintln!("connection error: {err}");
                 }
             })
             .detach();
         }
+
+        while active_connections.load(Ordering::Acquire) > 0 {
+            smol::Timer::after(Duration::from_millis(25)).await;
+        }
+
+        Ok(())
     }
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+enum AcceptEvent {
+    Shutdown,
+    Accepted(TcpStream),
+    AcceptError(io::Error),
 }
 
 async fn handle_connection(
     mut stream: TcpStream,
     router: Arc<Router>,
     middlewares: Arc<Vec<MiddlewareFn>>,
+    read_timeout: Duration,
+    max_request_size: usize,
 ) -> io::Result<()> {
-    let bytes = read_request_bytes(&mut stream).await?;
-    let request = match Request::from_bytes(&bytes) {
-        Ok(request) => request,
-        Err(_) => {
-            write_response(
-                &mut stream,
-                Response::bad_request().text_body("Bad Request"),
-            )
-            .await?;
-            return Ok(());
+    let mut keep_alive = true;
+    let mut buffered = Vec::with_capacity(4096);
+    while keep_alive {
+        let bytes = match read_request_bytes(
+            &mut stream,
+            &mut buffered,
+            max_request_size,
+            read_timeout,
+        )
+        .await
+        {
+            Ok(request_bytes) => request_bytes,
+            Err(err) => {
+                if err.kind() == io::ErrorKind::UnexpectedEof {
+                    return Ok(());
+                }
+
+                let response = response_for_read_error(&err);
+                write_response(&mut stream, response, false).await?;
+                return Ok(());
+            }
+        };
+
+        let request = match Request::from_bytes(&bytes) {
+            Ok(request) => request,
+            Err(err) => {
+                let response = response_for_parse_error(&err);
+                write_response(&mut stream, response, false).await?;
+                return Ok(());
+            }
+        };
+
+        keep_alive = request.should_keep_alive();
+
+        let method = request.method.clone();
+        let path = request.path.clone();
+
+        if method == "OPTIONS" {
+            let allowed = router.allowed_methods(&path);
+            let response = if allowed.is_empty() {
+                Response::not_found().text_body("Not Found")
+            } else {
+                Response::no_content().header("Allow", format_allow_header(&allowed))
+            };
+            write_response(&mut stream, response, keep_alive).await?;
+            if !keep_alive {
+                break;
+            }
+            continue;
         }
-    };
 
-    let method = request.method.clone();
-    let path = request.path.clone();
-    let (request, endpoint): (Request, Handler) = match router.resolve(&method, &path) {
-        ResolveResult::Found { handler, params } => (request.with_params(params), handler),
-        ResolveResult::MethodNotAllowed => (
-            request,
-            Arc::new(|_request: Request| {
-                Box::pin(async { Response::method_not_allowed().text_body("Method Not Allowed") })
-            }),
-        ),
-        ResolveResult::NotFound => (
-            request,
-            Arc::new(|_request: Request| {
-                Box::pin(async { Response::not_found().text_body("Not Found") })
-            }),
-        ),
-    };
+        let resolved = if method == "HEAD" {
+            match router.resolve("HEAD", &path) {
+                ResolveResult::Found { handler, params } => {
+                    ResolveResult::Found { handler, params }
+                }
+                _ => router.resolve("GET", &path),
+            }
+        } else {
+            router.resolve(&method, &path)
+        };
 
-    let response = dispatch(0, request, middlewares, endpoint).await;
+        let (request, endpoint): (Request, Handler) = match resolved {
+            ResolveResult::Found { handler, params } => (request.with_params(params), handler),
+            ResolveResult::MethodNotAllowed { allow } => {
+                let allow_header = format_allow_header(&allow);
+                (
+                    request,
+                    Arc::new(move |_request: Request| {
+                        let allow_header = allow_header.clone();
+                        Box::pin(async move {
+                            Response::method_not_allowed()
+                                .header("Allow", allow_header)
+                                .text_body("Method Not Allowed")
+                        })
+                    }),
+                )
+            }
+            ResolveResult::NotFound => (
+                request,
+                Arc::new(|_request: Request| {
+                    Box::pin(async { Response::not_found().text_body("Not Found") })
+                }),
+            ),
+        };
 
-    write_response(&mut stream, response).await
+        let mut response = dispatch(0, request, Arc::clone(&middlewares), endpoint).await;
+        if method == "HEAD" {
+            response = response.into_head_response();
+        }
+
+        write_response(&mut stream, response, keep_alive).await?;
+
+        if !keep_alive {
+            break;
+        }
+    }
+
+    Ok(())
 }
 
-async fn write_response(stream: &mut TcpStream, response: Response) -> io::Result<()> {
+async fn write_response(
+    stream: &mut TcpStream,
+    response: Response,
+    keep_alive: bool,
+) -> io::Result<()> {
+    let response = response
+        .header(
+            "Connection",
+            if keep_alive { "keep-alive" } else { "close" },
+        )
+        .header_if_missing("X-Content-Type-Options", "nosniff");
+
     stream.write_all(&response.to_http_bytes()).await?;
     stream.flush().await
 }
 
-async fn read_request_bytes(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
-    let mut buffer = vec![0u8; 4096];
-    let mut bytes = Vec::with_capacity(4096);
-    let mut expected_len: Option<usize> = None;
+async fn read_request_bytes(
+    stream: &mut TcpStream,
+    buffered: &mut Vec<u8>,
+    max_request_size: usize,
+    read_timeout: Duration,
+) -> io::Result<Vec<u8>> {
+    let mut buffer = [0u8; 4096];
+    let mut expected_len = expected_request_len(buffered, max_request_size)?;
 
     loop {
-        let read = stream.read(&mut buffer).await?;
-        if read == 0 {
-            break;
+        if let Some(total_expected) = expected_len {
+            if buffered.len() >= total_expected {
+                let mut tail = buffered.split_off(total_expected);
+                let request = std::mem::take(buffered);
+                std::mem::swap(buffered, &mut tail);
+                return Ok(request);
+            }
         }
 
-        bytes.extend_from_slice(&buffer[..read]);
+        let read = future::or(
+            async {
+                smol::Timer::after(read_timeout).await;
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "request read timed out",
+                ))
+            },
+            async {
+                let read = stream.read(&mut buffer).await?;
+                Ok(read)
+            },
+        )
+        .await?;
 
-        if bytes.len() > MAX_REQUEST_SIZE {
+        if read == 0 {
+            if buffered.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "empty request",
+                ));
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "incomplete request",
+            ));
+        }
+
+        buffered.extend_from_slice(&buffer[..read]);
+
+        if buffered.len() > max_request_size && expected_len.is_none() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "request exceeded maximum allowed size",
@@ -152,57 +503,166 @@ async fn read_request_bytes(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
         }
 
         if expected_len.is_none() {
-            if let Some(header_end) = find_bytes(&bytes, b"\r\n\r\n") {
-                let content_length = parse_content_length(&bytes[..header_end]);
-                expected_len = Some(header_end + 4 + content_length);
-            }
-        }
-
-        if let Some(total_expected) = expected_len {
-            if bytes.len() >= total_expected {
-                break;
-            }
+            expected_len = expected_request_len(buffered, max_request_size)?;
         }
     }
+}
 
-    if bytes.is_empty() {
+fn expected_request_len(bytes: &[u8], max_request_size: usize) -> io::Result<Option<usize>> {
+    let Some(header_end) = find_bytes(bytes, b"\r\n\r\n") else {
+        return Ok(None);
+    };
+
+    let content_length = parse_content_length(&bytes[..header_end])?;
+    let expected = header_end + 4 + content_length;
+    if expected > max_request_size {
         return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "empty request",
+            io::ErrorKind::InvalidData,
+            "request exceeded maximum allowed size",
         ));
     }
 
-    Ok(bytes)
+    Ok(Some(expected))
 }
 
-fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+fn parse_content_length(header_bytes: &[u8]) -> io::Result<usize> {
+    parse_content_length_from_head(header_bytes)
 }
 
-fn parse_content_length(header_bytes: &[u8]) -> usize {
-    let headers = String::from_utf8_lossy(header_bytes);
-    for line in headers.lines() {
-        if let Some((name, value)) = line.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("content-length") {
-                if let Ok(len) = value.trim().parse::<usize>() {
-                    return len;
-                }
-            }
+fn response_for_read_error(err: &io::Error) -> Response {
+    if err.kind() == io::ErrorKind::TimedOut {
+        Response::request_timeout().text_body("Request Timeout")
+    } else if err.kind() == io::ErrorKind::InvalidData {
+        let message = err.to_string();
+        if message.contains("maximum allowed size") {
+            Response::payload_too_large().text_body("Payload Too Large")
+        } else if message.contains("transfer-encoding") {
+            Response::not_implemented().text_body("Not Implemented")
+        } else {
+            Response::bad_request().text_body("Bad Request")
         }
+    } else {
+        Response::bad_request().text_body("Bad Request")
     }
+}
 
-    0
+fn response_for_parse_error(err: &io::Error) -> Response {
+    if err.kind() == io::ErrorKind::InvalidData {
+        if err.to_string().contains("transfer-encoding") {
+            Response::not_implemented().text_body("Not Implemented")
+        } else {
+            Response::bad_request().text_body("Bad Request")
+        }
+    } else {
+        Response::internal_server_error().text_body("Internal Server Error")
+    }
+}
+
+fn format_allow_header(methods: &[String]) -> String {
+    let mut allow = methods.to_vec();
+    if allow.iter().any(|method| method == "GET") && !allow.iter().any(|method| method == "HEAD") {
+        allow.push("HEAD".to_string());
+    }
+    if !allow.iter().any(|method| method == "OPTIONS") {
+        allow.push("OPTIONS".to_string());
+    }
+    allow.sort_unstable();
+    allow.dedup();
+    allow.join(", ")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_content_length;
+    use super::{
+        App, expected_request_len, format_allow_header, parse_content_length, response_for_read_error,
+    };
+    use crate::http::{Request, Response};
+    use std::time::Duration;
+
+    async fn ok_handler(_request: Request) -> Response {
+        Response::ok()
+    }
 
     #[test]
     fn parses_content_length_from_headers() {
         let headers = b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 12\r\n";
-        assert_eq!(parse_content_length(headers), 12);
+        assert_eq!(parse_content_length(headers).expect("content length"), 12);
+    }
+
+    #[test]
+    fn rejects_conflicting_content_lengths() {
+        let headers =
+            b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nContent-Length: 9\r\n";
+        assert!(parse_content_length(headers).is_err());
+    }
+
+    #[test]
+    fn maps_timeout_error_to_408() {
+        let err = std::io::Error::new(std::io::ErrorKind::TimedOut, "request read timed out");
+        let response = response_for_read_error(&err);
+        assert_eq!(response.status_code(), 408);
+    }
+
+    #[test]
+    fn maps_large_payload_to_413() {
+        let err = std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "request exceeded maximum allowed size",
+        );
+        let response = response_for_read_error(&err);
+        assert_eq!(response.status_code(), 413);
+    }
+
+    #[test]
+    fn allow_header_includes_head_and_options() {
+        let allow = format_allow_header(&["GET".to_string(), "POST".to_string()]);
+        assert_eq!(allow, "GET, HEAD, OPTIONS, POST");
+    }
+
+    #[test]
+    fn builder_api_supports_all_http_methods() {
+        let _app = App::new()
+            .max_request_size(2048)
+            .read_timeout(Duration::from_millis(500))
+            .max_connections(10)
+            .get("/", ok_handler)
+            .post("/", ok_handler)
+            .put("/", ok_handler)
+            .patch("/", ok_handler)
+            .delete("/", ok_handler)
+            .head("/", ok_handler)
+            .options("/", ok_handler)
+            .any("/*path", ok_handler);
+    }
+
+    #[test]
+    fn try_builders_allow_error_handling() {
+        let app = App::new()
+            .try_get("/", ok_handler)
+            .expect("valid route")
+            .try_post("/", ok_handler)
+            .expect("valid route")
+            .try_put("/", ok_handler)
+            .expect("valid route")
+            .try_patch("/", ok_handler)
+            .expect("valid route")
+            .try_delete("/", ok_handler)
+            .expect("valid route")
+            .try_head("/", ok_handler)
+            .expect("valid route")
+            .try_options("/", ok_handler)
+            .expect("valid route")
+            .try_any("/*path", ok_handler)
+            .expect("valid route");
+
+        assert!(app.try_get("invalid", ok_handler).is_err());
+    }
+
+    #[test]
+    fn calculates_expected_request_length() {
+        let request = b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nhelloextra";
+        let expected = expected_request_len(request, 1024).expect("length parse");
+
+        assert_eq!(expected, Some(60));
     }
 }
