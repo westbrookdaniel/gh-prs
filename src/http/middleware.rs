@@ -1,13 +1,14 @@
 use crate::http::router::Handler;
 use crate::http::{Request, Response};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -15,6 +16,11 @@ static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 pub struct StaticDirOptions {
     index_file: Option<String>,
     cache_control: Option<String>,
+    etag: bool,
+    memory_cache: bool,
+    cache_ttl: Duration,
+    cache_max_entries: usize,
+    cache_max_bytes: usize,
     fallthrough: bool,
     allow_dotfiles: bool,
 }
@@ -24,6 +30,11 @@ impl Default for StaticDirOptions {
         Self {
             index_file: Some("index.html".to_string()),
             cache_control: Some("public, max-age=300".to_string()),
+            etag: true,
+            memory_cache: true,
+            cache_ttl: Duration::from_secs(60),
+            cache_max_entries: 256,
+            cache_max_bytes: 16 * 1024 * 1024,
             fallthrough: true,
             allow_dotfiles: false,
         }
@@ -52,6 +63,27 @@ impl StaticDirOptions {
 
     pub fn no_cache_control(mut self) -> Self {
         self.cache_control = None;
+        self
+    }
+
+    pub fn etag(mut self, enabled: bool) -> Self {
+        self.etag = enabled;
+        self
+    }
+
+    pub fn memory_cache(mut self, enabled: bool) -> Self {
+        self.memory_cache = enabled;
+        self
+    }
+
+    pub fn cache_ttl(mut self, ttl: Duration) -> Self {
+        self.cache_ttl = ttl;
+        self
+    }
+
+    pub fn cache_limits(mut self, max_entries: usize, max_bytes: usize) -> Self {
+        self.cache_max_entries = max_entries.max(1);
+        self.cache_max_bytes = max_bytes.max(1024);
         self
     }
 
@@ -107,10 +139,15 @@ pub fn static_dir(
 ) -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
     let normalized_prefix = normalize_prefix(&url_prefix.into());
     let canonical_root = std::fs::canonicalize(root.into()).ok();
+    let cache = Arc::new(Mutex::new(StaticFileCache::new(
+        options.cache_max_entries,
+        options.cache_max_bytes,
+    )));
 
     move |request: Request, next: Next| {
         let normalized_prefix = normalized_prefix.clone();
         let canonical_root = canonical_root.clone();
+        let cache = Arc::clone(&cache);
         let options = options.clone();
 
         Box::pin(async move {
@@ -159,44 +196,86 @@ pub fn static_dir(
                 };
             }
 
-            let target_path = canonical_root.join(&relative_path);
-            let canonical_target = match canonicalize_path(target_path).await {
-                Ok(path) => path,
-                Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                    return if options.fallthrough {
-                        next.run(request).await
-                    } else {
-                        Response::not_found().text_body("Not Found")
-                    };
-                }
-                Err(_) => {
-                    return Response::internal_server_error()
-                        .text_body("Failed to read static file");
-                }
+            let cache_key = relative_path.to_string_lossy().into_owned();
+            let mut entry = if options.memory_cache {
+                cache
+                    .lock()
+                    .ok()
+                    .and_then(|mut state| state.get_fresh(&cache_key, options.cache_ttl))
+            } else {
+                None
             };
 
-            if !canonical_target.starts_with(&canonical_root) {
-                return Response::bad_request().text_body("Invalid asset path");
+            if entry.is_none() {
+                let target_path = canonical_root.join(&relative_path);
+                let canonical_target = match canonicalize_path(target_path).await {
+                    Ok(path) => path,
+                    Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                        return if options.fallthrough {
+                            next.run(request).await
+                        } else {
+                            Response::not_found().text_body("Not Found")
+                        };
+                    }
+                    Err(_) => {
+                        return Response::internal_server_error()
+                            .text_body("Failed to read static file");
+                    }
+                };
+
+                if !canonical_target.starts_with(&canonical_root) {
+                    return Response::bad_request().text_body("Invalid asset path");
+                }
+
+                let loaded = match load_file_entry(canonical_target).await {
+                    Ok(loaded) => loaded,
+                    Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                        return if options.fallthrough {
+                            next.run(request).await
+                        } else {
+                            Response::not_found().text_body("Not Found")
+                        };
+                    }
+                    Err(_) => {
+                        return Response::internal_server_error()
+                            .text_body("Failed to read static file");
+                    }
+                };
+
+                if options.memory_cache {
+                    if let Ok(mut state) = cache.lock() {
+                        state.insert(cache_key.clone(), loaded.clone());
+                    }
+                }
+
+                entry = Some(loaded);
             }
 
-            let bytes = match read_file_bytes(canonical_target.clone()).await {
-                Ok(bytes) => bytes,
-                Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                    return if options.fallthrough {
-                        next.run(request).await
-                    } else {
-                        Response::not_found().text_body("Not Found")
-                    };
+            let entry = entry.expect("static file entry should exist after load");
+
+            if options.etag {
+                if let Some(if_none_match) = request.header("if-none-match") {
+                    if request_matches_etag(if_none_match, &entry.etag) {
+                        let mut response =
+                            Response::new(304, "Not Modified").header("ETag", entry.etag.clone());
+                        if let Some(cache_control) = &options.cache_control {
+                            response = response.header("Cache-Control", cache_control);
+                        }
+                        if request.method == "HEAD" {
+                            response = response.into_head_response();
+                        }
+                        return response;
+                    }
                 }
-                Err(_) => {
-                    return Response::internal_server_error()
-                        .text_body("Failed to read static file");
-                }
-            };
+            }
 
             let mut response = Response::ok()
-                .header("Content-Type", content_type_for_path(&canonical_target))
-                .body(bytes);
+                .header("Content-Type", entry.content_type)
+                .body(entry.bytes.as_ref().clone());
+
+            if options.etag {
+                response = response.header("ETag", entry.etag.clone());
+            }
 
             if let Some(cache_control) = &options.cache_control {
                 response = response.header("Cache-Control", cache_control);
@@ -360,6 +439,81 @@ enum StaticPathError {
     DotfileDenied,
 }
 
+#[derive(Clone)]
+struct StaticFileEntry {
+    bytes: Arc<Vec<u8>>,
+    content_type: &'static str,
+    etag: String,
+    inserted_at: Instant,
+    size: usize,
+}
+
+struct StaticFileCache {
+    entries: HashMap<String, StaticFileEntry>,
+    order: VecDeque<String>,
+    max_entries: usize,
+    max_bytes: usize,
+    total_bytes: usize,
+}
+
+impl StaticFileCache {
+    fn new(max_entries: usize, max_bytes: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            max_entries: max_entries.max(1),
+            max_bytes: max_bytes.max(1024),
+            total_bytes: 0,
+        }
+    }
+
+    fn get_fresh(&mut self, key: &str, ttl: Duration) -> Option<StaticFileEntry> {
+        let Some(entry) = self.entries.get(key).cloned() else {
+            return None;
+        };
+
+        if entry.inserted_at.elapsed() > ttl {
+            self.remove(key);
+            return None;
+        }
+
+        self.touch(key);
+        Some(entry)
+    }
+
+    fn insert(&mut self, key: String, entry: StaticFileEntry) {
+        if let Some(existing) = self.entries.get(&key) {
+            self.total_bytes = self.total_bytes.saturating_sub(existing.size);
+        }
+
+        self.entries.insert(key.clone(), entry.clone());
+        self.total_bytes = self.total_bytes.saturating_add(entry.size);
+        self.touch(&key);
+        self.evict_if_needed();
+    }
+
+    fn remove(&mut self, key: &str) {
+        if let Some(entry) = self.entries.remove(key) {
+            self.total_bytes = self.total_bytes.saturating_sub(entry.size);
+        }
+        self.order.retain(|candidate| candidate != key);
+    }
+
+    fn touch(&mut self, key: &str) {
+        self.order.retain(|candidate| candidate != key);
+        self.order.push_back(key.to_string());
+    }
+
+    fn evict_if_needed(&mut self) {
+        while self.entries.len() > self.max_entries || self.total_bytes > self.max_bytes {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            self.remove(&oldest);
+        }
+    }
+}
+
 fn normalize_prefix(prefix: &str) -> String {
     if prefix == "/" {
         return "/".to_string();
@@ -418,6 +572,54 @@ async fn read_file_bytes(path: PathBuf) -> io::Result<Vec<u8>> {
     smol::unblock(move || std::fs::read(path)).await
 }
 
+async fn file_modified_secs(path: PathBuf) -> io::Result<u64> {
+    smol::unblock(move || {
+        let metadata = std::fs::metadata(path)?;
+        let modified = metadata.modified()?;
+        let secs = modified
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        Ok(secs)
+    })
+    .await
+}
+
+async fn load_file_entry(path: PathBuf) -> io::Result<StaticFileEntry> {
+    let bytes = read_file_bytes(path.clone()).await?;
+    let modified_secs = file_modified_secs(path.clone()).await.unwrap_or(0);
+    let etag = build_etag(&path, bytes.len(), modified_secs);
+    let size = bytes.len();
+
+    Ok(StaticFileEntry {
+        bytes: Arc::new(bytes),
+        content_type: content_type_for_path(&path),
+        etag,
+        inserted_at: Instant::now(),
+        size,
+    })
+}
+
+fn build_etag(path: &Path, len: usize, modified_secs: u64) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    len.hash(&mut hasher);
+    modified_secs.hash(&mut hasher);
+    let digest = hasher.finish();
+    format!("\"{digest:x}-{len:x}-{modified_secs:x}\"")
+}
+
+fn request_matches_etag(if_none_match: &str, etag: &str) -> bool {
+    if if_none_match.trim() == "*" {
+        return true;
+    }
+
+    if_none_match
+        .split(',')
+        .map(str::trim)
+        .any(|candidate| candidate == etag)
+}
+
 fn content_type_for_path(path: &Path) -> &'static str {
     match path.extension().and_then(|ext| ext.to_str()) {
         Some("css") => "text/css; charset=utf-8",
@@ -454,6 +656,18 @@ mod tests {
 
     fn test_request_with_method(method: &str, path: &str) -> Request {
         let raw = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        Request::from_bytes(raw.as_bytes()).expect("request should parse")
+    }
+
+    fn test_request_with_headers(method: &str, path: &str, headers: &[(&str, &str)]) -> Request {
+        let mut raw = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\n");
+        for (name, value) in headers {
+            raw.push_str(name);
+            raw.push_str(": ");
+            raw.push_str(value);
+            raw.push_str("\r\n");
+        }
+        raw.push_str("\r\n");
         Request::from_bytes(raw.as_bytes()).expect("request should parse")
     }
 
@@ -728,6 +942,55 @@ mod tests {
             assert_eq!(response.status_code(), 200);
             assert!(raw.contains("Content-Length: 5\r\n"));
             assert!(!raw.ends_with("hello"));
+
+            fs::remove_dir_all(root).expect("temp dir cleanup should succeed");
+        });
+    }
+
+    #[test]
+    fn static_dir_returns_not_modified_when_etag_matches() {
+        smol::block_on(async {
+            let root = temp_dir("static-etag");
+            fs::write(root.join("etag.txt"), "etag-content")
+                .expect("fixture file should be written");
+
+            let endpoint: Handler =
+                Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
+            let middleware: MiddlewareFn = Arc::new(static_dir(
+                "/assets",
+                root.clone(),
+                StaticDirOptions::default().cache_ttl(std::time::Duration::from_secs(30)),
+            ));
+            let stack = Arc::new(vec![middleware]);
+
+            let first = dispatch(
+                0,
+                test_request("/assets/etag.txt"),
+                Arc::clone(&stack),
+                Arc::clone(&endpoint),
+            )
+            .await;
+            let first_raw =
+                String::from_utf8(first.to_http_bytes()).expect("response should be utf-8");
+            let etag = first_raw
+                .lines()
+                .find_map(|line| line.strip_prefix("ETag: "))
+                .expect("etag header should exist")
+                .to_string();
+
+            let second = dispatch(
+                0,
+                test_request_with_headers("GET", "/assets/etag.txt", &[("If-None-Match", &etag)]),
+                stack,
+                endpoint,
+            )
+            .await;
+            let second_raw =
+                String::from_utf8(second.to_http_bytes()).expect("response should be utf-8");
+
+            assert_eq!(first.status_code(), 200);
+            assert_eq!(second.status_code(), 304);
+            assert!(!second_raw.ends_with("etag-content"));
 
             fs::remove_dir_all(root).expect("temp dir cleanup should succeed");
         });
