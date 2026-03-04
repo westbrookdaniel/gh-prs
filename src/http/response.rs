@@ -30,8 +30,24 @@ impl Response {
         Self::new(405, "Method Not Allowed")
     }
 
+    pub fn no_content() -> Self {
+        Self::new(204, "No Content")
+    }
+
     pub fn bad_request() -> Self {
         Self::new(400, "Bad Request")
+    }
+
+    pub fn request_timeout() -> Self {
+        Self::new(408, "Request Timeout")
+    }
+
+    pub fn payload_too_large() -> Self {
+        Self::new(413, "Payload Too Large")
+    }
+
+    pub fn not_implemented() -> Self {
+        Self::new(501, "Not Implemented")
     }
 
     pub fn internal_server_error() -> Self {
@@ -39,8 +55,36 @@ impl Response {
     }
 
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.headers.push((name.into(), value.into()));
+        let name = name.into();
+        let value = value.into();
+
+        if !is_valid_header_name(&name) || !is_valid_header_value(&value) {
+            return self;
+        }
+
+        if let Some(existing) = self
+            .headers
+            .iter_mut()
+            .find(|(existing_name, _)| existing_name.eq_ignore_ascii_case(&name))
+        {
+            existing.1 = value;
+        } else {
+            self.headers.push((name, value));
+        }
         self
+    }
+
+    pub fn header_if_missing(self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        let name = name.into();
+        if self
+            .headers
+            .iter()
+            .any(|(existing_name, _)| existing_name.eq_ignore_ascii_case(&name))
+        {
+            return self;
+        }
+
+        self.header(name, value)
     }
 
     pub fn body(mut self, body: impl Into<Vec<u8>>) -> Self {
@@ -73,11 +117,21 @@ impl Response {
     }
 
     pub fn text_body(mut self, text: impl Into<String>) -> Self {
-        self.headers.push((
-            "Content-Type".to_string(),
-            "text/plain; charset=utf-8".to_string(),
-        ));
+        self = self.header("Content-Type", "text/plain; charset=utf-8");
         self.body = text.into().into_bytes();
+        self
+    }
+
+    pub fn into_head_response(mut self) -> Self {
+        let body_len = self.body.len();
+        if !self
+            .headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        {
+            self = self.header("Content-Length", body_len.to_string());
+        }
+        self.body.clear();
         self
     }
 
@@ -89,9 +143,13 @@ impl Response {
         let mut response = format!("HTTP/1.1 {} {}\r\n", self.status_code, self.reason_phrase);
 
         let mut has_content_length = false;
+        let mut has_connection = false;
         for (name, value) in &self.headers {
             if name.eq_ignore_ascii_case("content-length") {
                 has_content_length = true;
+            }
+            if name.eq_ignore_ascii_case("connection") {
+                has_connection = true;
             }
             response.push_str(name);
             response.push_str(": ");
@@ -103,12 +161,42 @@ impl Response {
             response.push_str(&format!("Content-Length: {}\r\n", self.body.len()));
         }
 
-        response.push_str("Connection: close\r\n\r\n");
+        if !has_connection {
+            response.push_str("Connection: close\r\n");
+        }
+
+        response.push_str("\r\n");
 
         let mut bytes = response.into_bytes();
         bytes.extend_from_slice(&self.body);
         bytes
     }
+}
+
+fn is_valid_header_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|byte| {
+            matches!(
+                byte,
+                b'!' | b'#'..=b'\''
+                    | b'*'
+                    | b'+'
+                    | b'-'
+                    | b'.'
+                    | b'0'..=b'9'
+                    | b'A'..=b'Z'
+                    | b'^'
+                    | b'_'
+                    | b'`'
+                    | b'a'..=b'z'
+                    | b'|'
+                    | b'~'
+            )
+        })
+}
+
+fn is_valid_header_value(value: &str) -> bool {
+    !value.bytes().any(|byte| byte == b'\r' || byte == b'\n')
 }
 
 #[cfg(test)]
@@ -130,5 +218,37 @@ mod tests {
         assert!(raw.contains("HTTP/1.1 200 OK"));
         assert!(raw.contains("Content-Type: application/json"));
         assert!(raw.contains("{\"name\":\"smol\"}"));
+    }
+
+    #[test]
+    fn ignores_invalid_header_values() {
+        let response = Response::ok()
+            .header("X-Test", "good")
+            .header("X-Test", "bad\r\nInjected: yes");
+        let raw =
+            String::from_utf8(response.to_http_bytes()).expect("http response should be utf-8");
+
+        assert!(raw.contains("X-Test: good\r\n"));
+        assert!(!raw.contains("Injected"));
+    }
+
+    #[test]
+    fn head_response_preserves_original_content_length() {
+        let response = Response::text("hello").into_head_response();
+        let raw =
+            String::from_utf8(response.to_http_bytes()).expect("http response should be utf-8");
+
+        assert!(raw.contains("Content-Length: 5\r\n"));
+        assert!(!raw.ends_with("hello"));
+    }
+
+    #[test]
+    fn preserves_custom_connection_header() {
+        let response = Response::ok().header("Connection", "keep-alive");
+        let raw =
+            String::from_utf8(response.to_http_bytes()).expect("http response should be utf-8");
+
+        assert!(raw.contains("Connection: keep-alive\r\n"));
+        assert!(!raw.contains("Connection: close\r\n"));
     }
 }
