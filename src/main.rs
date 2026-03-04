@@ -1,7 +1,7 @@
 mod http;
 
 use askama::Template;
-use http::{App, Request, Response};
+use http::{App, Request, Response, logger};
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -34,6 +34,7 @@ async fn not_found(request: Request) -> Response {
 fn main() -> std::io::Result<()> {
     smol::block_on(async {
         App::new()
+            .r#use(logger())
             .get("/", hello)
             .get("/users/:id", user_by_id)
             .any("/*path", not_found)
