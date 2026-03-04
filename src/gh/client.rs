@@ -227,6 +227,7 @@ impl Default for GhClient {
 }
 
 impl GhClient {
+    #[cfg(test)]
     pub fn with_runner(runner: Arc<dyn CommandRunner>, timeout: Duration) -> Self {
         Self { runner, timeout }
     }
