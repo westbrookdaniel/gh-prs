@@ -25,6 +25,15 @@ pub struct StaticDirOptions {
     allow_dotfiles: bool,
 }
 
+pub struct StaticDir;
+
+#[derive(Clone, Debug)]
+pub struct StaticDirBuilder {
+    url_prefix: String,
+    root: PathBuf,
+    options: StaticDirOptions,
+}
+
 impl Default for StaticDirOptions {
     fn default() -> Self {
         Self {
@@ -42,10 +51,6 @@ impl Default for StaticDirOptions {
 }
 
 impl StaticDirOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn index_file(mut self, index_file: impl Into<String>) -> Self {
         self.index_file = Some(index_file.into());
         self
@@ -95,6 +100,74 @@ impl StaticDirOptions {
     pub fn allow_dotfiles(mut self, enabled: bool) -> Self {
         self.allow_dotfiles = enabled;
         self
+    }
+}
+
+impl StaticDir {
+    pub fn builder(url_prefix: impl Into<String>, root: impl Into<PathBuf>) -> StaticDirBuilder {
+        StaticDirBuilder {
+            url_prefix: url_prefix.into(),
+            root: root.into(),
+            options: StaticDirOptions::default(),
+        }
+    }
+}
+
+impl StaticDirBuilder {
+    pub fn index_file(mut self, index_file: impl Into<String>) -> Self {
+        self.options = self.options.index_file(index_file);
+        self
+    }
+
+    pub fn no_index(mut self) -> Self {
+        self.options = self.options.no_index();
+        self
+    }
+
+    pub fn cache_control(mut self, cache_control: impl Into<String>) -> Self {
+        self.options = self.options.cache_control(cache_control);
+        self
+    }
+
+    pub fn no_cache_control(mut self) -> Self {
+        self.options = self.options.no_cache_control();
+        self
+    }
+
+    pub fn etag(mut self, enabled: bool) -> Self {
+        self.options = self.options.etag(enabled);
+        self
+    }
+
+    pub fn memory_cache(mut self, enabled: bool) -> Self {
+        self.options = self.options.memory_cache(enabled);
+        self
+    }
+
+    pub fn cache_ttl(mut self, ttl: Duration) -> Self {
+        self.options = self.options.cache_ttl(ttl);
+        self
+    }
+
+    pub fn cache_limits(mut self, max_entries: usize, max_bytes: usize) -> Self {
+        self.options = self.options.cache_limits(max_entries, max_bytes);
+        self
+    }
+
+    pub fn fallthrough(mut self, enabled: bool) -> Self {
+        self.options = self.options.fallthrough(enabled);
+        self
+    }
+
+    pub fn allow_dotfiles(mut self, enabled: bool) -> Self {
+        self.options = self.options.allow_dotfiles(enabled);
+        self
+    }
+
+    pub fn into_middleware(
+        self,
+    ) -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
+        static_dir(self.url_prefix, self.root, self.options)
     }
 }
 
@@ -640,7 +713,7 @@ fn content_type_for_path(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        MiddlewareFn, Next, StaticDirOptions, cors, dispatch, rate_limit, request_id,
+        MiddlewareFn, Next, StaticDir, StaticDirOptions, cors, dispatch, rate_limit, request_id,
         security_headers, static_dir,
     };
     use crate::http::router::Handler;
@@ -992,6 +1065,40 @@ mod tests {
             assert_eq!(second.status_code(), 304);
             assert!(!second_raw.ends_with("etag-content"));
 
+            fs::remove_dir_all(root).expect("temp dir cleanup should succeed");
+        });
+    }
+
+    #[test]
+    fn static_dir_builder_can_build_middleware() {
+        smol::block_on(async {
+            let root = temp_dir("static-builder");
+            fs::write(root.join("builder.txt"), "ok").expect("fixture file should be written");
+
+            let endpoint: Handler =
+                Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
+            let middleware: MiddlewareFn = Arc::new(
+                StaticDir::builder("/assets", root.clone())
+                    .no_index()
+                    .cache_control("public, max-age=120")
+                    .etag(true)
+                    .memory_cache(true)
+                    .cache_ttl(std::time::Duration::from_secs(30))
+                    .cache_limits(10, 1024 * 1024)
+                    .fallthrough(true)
+                    .allow_dotfiles(false)
+                    .into_middleware(),
+            );
+
+            let response = dispatch(
+                0,
+                test_request("/assets/builder.txt"),
+                Arc::new(vec![middleware]),
+                endpoint,
+            )
+            .await;
+
+            assert_eq!(response.status_code(), 200);
             fs::remove_dir_all(root).expect("temp dir cleanup should succeed");
         });
     }

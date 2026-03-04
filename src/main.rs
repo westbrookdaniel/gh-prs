@@ -1,10 +1,7 @@
 mod http;
 
 use askama::Template;
-use http::{
-    App, Request, Response, StaticDirOptions, cors, logger, request_id, security_headers,
-    static_dir,
-};
+use http::{App, Request, Response, StaticDir, cors, logger, request_id, security_headers};
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -45,13 +42,12 @@ fn main() -> std::io::Result<()> {
                 "Content-Type, Authorization",
             ))
             .middleware(logger())
-            .middleware(static_dir(
-                "/assets",
-                "assets",
-                StaticDirOptions::new()
+            .middleware(
+                StaticDir::builder("/assets", "assets")
                     .cache_control("public, max-age=86400")
-                    .fallthrough(true),
-            ))
+                    .fallthrough(true)
+                    .into_middleware(),
+            )
             .get("/", hello)
             .get("/users/:id", user_by_id)
             .any("/*path", not_found)
