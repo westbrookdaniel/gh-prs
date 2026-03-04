@@ -1,8 +1,10 @@
 mod http;
 
 use askama::Template;
-use http::{App, Request, Response, cors, logger, request_id, security_headers};
-use std::path::{Component, Path, PathBuf};
+use http::{
+    App, Request, Response, StaticDirOptions, cors, logger, request_id, security_headers,
+    static_dir,
+};
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -27,60 +29,6 @@ async fn user_by_id(request: Request) -> Response {
     Response::text(format!("user id: {id}"))
 }
 
-async fn assets(request: Request) -> Response {
-    let Some(path) = request.param("path") else {
-        return Response::not_found().text_body("Not Found");
-    };
-
-    let assets_root = match std::fs::canonicalize("assets") {
-        Ok(path) => path,
-        Err(_) => return Response::internal_server_error().text_body("Asset root unavailable"),
-    };
-
-    let mut full_path = assets_root.clone();
-    for component in PathBuf::from(path).components() {
-        match component {
-            Component::Normal(part) => full_path.push(part),
-            _ => return Response::bad_request().text_body("Invalid asset path"),
-        }
-    }
-
-    let canonical_target = match std::fs::canonicalize(&full_path) {
-        Ok(path) => path,
-        Err(_) => return Response::not_found().text_body("Not Found"),
-    };
-
-    if !canonical_target.starts_with(&assets_root) {
-        return Response::bad_request().text_body("Invalid asset path");
-    }
-
-    match read_file_bytes(&canonical_target).await {
-        Ok(bytes) => {
-            let content_type = match canonical_target.extension().and_then(|ext| ext.to_str()) {
-                Some("css") => "text/css; charset=utf-8",
-                Some("js") => "application/javascript; charset=utf-8",
-                Some("html") => "text/html; charset=utf-8",
-                Some("json") => "application/json; charset=utf-8",
-                Some("svg") => "image/svg+xml",
-                Some("png") => "image/png",
-                Some("jpg") | Some("jpeg") => "image/jpeg",
-                Some("gif") => "image/gif",
-                _ => "application/octet-stream",
-            };
-
-            Response::ok()
-                .header("Content-Type", content_type)
-                .body(bytes)
-        }
-        Err(_) => Response::not_found().text_body("Not Found"),
-    }
-}
-
-async fn read_file_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
-    let path = path.to_path_buf();
-    smol::unblock(move || std::fs::read(path)).await
-}
-
 async fn not_found(request: Request) -> Response {
     let path = request.param("path").unwrap_or_default();
     Response::not_found().text_body(format!("Not Found: /{path}"))
@@ -97,9 +45,15 @@ fn main() -> std::io::Result<()> {
                 "Content-Type, Authorization",
             ))
             .middleware(logger())
+            .middleware(static_dir(
+                "/assets",
+                "assets",
+                StaticDirOptions::new()
+                    .cache_control("public, max-age=86400")
+                    .fallthrough(true),
+            ))
             .get("/", hello)
             .get("/users/:id", user_by_id)
-            .get("/assets/*path", assets)
             .any("/*path", not_found)
             .serve("127.0.0.1:3000")
             .await

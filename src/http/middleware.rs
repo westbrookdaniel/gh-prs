@@ -1,12 +1,70 @@
 use crate::http::router::Handler;
 use crate::http::{Request, Response};
+use std::collections::HashMap;
 use std::future::Future;
+use std::io;
+use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Debug)]
+pub struct StaticDirOptions {
+    index_file: Option<String>,
+    cache_control: Option<String>,
+    fallthrough: bool,
+    allow_dotfiles: bool,
+}
+
+impl Default for StaticDirOptions {
+    fn default() -> Self {
+        Self {
+            index_file: Some("index.html".to_string()),
+            cache_control: Some("public, max-age=300".to_string()),
+            fallthrough: true,
+            allow_dotfiles: false,
+        }
+    }
+}
+
+impl StaticDirOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn index_file(mut self, index_file: impl Into<String>) -> Self {
+        self.index_file = Some(index_file.into());
+        self
+    }
+
+    pub fn no_index(mut self) -> Self {
+        self.index_file = None;
+        self
+    }
+
+    pub fn cache_control(mut self, cache_control: impl Into<String>) -> Self {
+        self.cache_control = Some(cache_control.into());
+        self
+    }
+
+    pub fn no_cache_control(mut self) -> Self {
+        self.cache_control = None;
+        self
+    }
+
+    pub fn fallthrough(mut self, enabled: bool) -> Self {
+        self.fallthrough = enabled;
+        self
+    }
+
+    pub fn allow_dotfiles(mut self, enabled: bool) -> Self {
+        self.allow_dotfiles = enabled;
+        self
+    }
+}
 
 pub type MiddlewareFuture = Pin<Box<dyn Future<Output = Response> + Send + 'static>>;
 pub type MiddlewareFn = Arc<dyn Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static>;
@@ -40,6 +98,117 @@ pub(crate) fn dispatch(
     }
 
     endpoint(request)
+}
+
+pub fn static_dir(
+    url_prefix: impl Into<String>,
+    root: impl Into<PathBuf>,
+    options: StaticDirOptions,
+) -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
+    let normalized_prefix = normalize_prefix(&url_prefix.into());
+    let canonical_root = std::fs::canonicalize(root.into()).ok();
+
+    move |request: Request, next: Next| {
+        let normalized_prefix = normalized_prefix.clone();
+        let canonical_root = canonical_root.clone();
+        let options = options.clone();
+
+        Box::pin(async move {
+            if request.method != "GET" && request.method != "HEAD" {
+                return next.run(request).await;
+            }
+
+            let Some(relative_raw) = path_under_prefix(&request.path, &normalized_prefix) else {
+                return next.run(request).await;
+            };
+
+            let Some(canonical_root) = canonical_root else {
+                return if options.fallthrough {
+                    next.run(request).await
+                } else {
+                    Response::internal_server_error().text_body("Static root unavailable")
+                };
+            };
+
+            let mut relative_path =
+                match sanitize_relative_path(&relative_raw, options.allow_dotfiles) {
+                    Ok(path) => path,
+                    Err(StaticPathError::InvalidPath) => {
+                        return Response::bad_request().text_body("Invalid asset path");
+                    }
+                    Err(StaticPathError::DotfileDenied) => {
+                        return if options.fallthrough {
+                            next.run(request).await
+                        } else {
+                            Response::not_found().text_body("Not Found")
+                        };
+                    }
+                };
+
+            if request.path.ends_with('/') || relative_path.as_os_str().is_empty() {
+                if let Some(index_file) = &options.index_file {
+                    relative_path.push(index_file);
+                }
+            }
+
+            if relative_path.as_os_str().is_empty() {
+                return if options.fallthrough {
+                    next.run(request).await
+                } else {
+                    Response::not_found().text_body("Not Found")
+                };
+            }
+
+            let target_path = canonical_root.join(&relative_path);
+            let canonical_target = match canonicalize_path(target_path).await {
+                Ok(path) => path,
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                    return if options.fallthrough {
+                        next.run(request).await
+                    } else {
+                        Response::not_found().text_body("Not Found")
+                    };
+                }
+                Err(_) => {
+                    return Response::internal_server_error()
+                        .text_body("Failed to read static file");
+                }
+            };
+
+            if !canonical_target.starts_with(&canonical_root) {
+                return Response::bad_request().text_body("Invalid asset path");
+            }
+
+            let bytes = match read_file_bytes(canonical_target.clone()).await {
+                Ok(bytes) => bytes,
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                    return if options.fallthrough {
+                        next.run(request).await
+                    } else {
+                        Response::not_found().text_body("Not Found")
+                    };
+                }
+                Err(_) => {
+                    return Response::internal_server_error()
+                        .text_body("Failed to read static file");
+                }
+            };
+
+            let mut response = Response::ok()
+                .header("Content-Type", content_type_for_path(&canonical_target))
+                .body(bytes);
+
+            if let Some(cache_control) = &options.cache_control {
+                response = response.header("Cache-Control", cache_control);
+            }
+
+            if request.method == "HEAD" {
+                response = response.into_head_response();
+            }
+
+            response
+        })
+    }
 }
 
 pub fn logger() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
@@ -134,7 +303,7 @@ pub fn rate_limit(
     max_requests: u32,
     window: std::time::Duration,
 ) -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
-    let state = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<
+    let state = Arc::new(std::sync::Mutex::new(HashMap::<
         String,
         (u32, std::time::Instant),
     >::new()));
@@ -185,16 +354,117 @@ pub fn rate_limit(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum StaticPathError {
+    InvalidPath,
+    DotfileDenied,
+}
+
+fn normalize_prefix(prefix: &str) -> String {
+    if prefix == "/" {
+        return "/".to_string();
+    }
+
+    let trimmed = prefix.trim_end_matches('/');
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{trimmed}")
+    }
+}
+
+fn path_under_prefix<'a>(path: &'a str, prefix: &str) -> Option<String> {
+    if prefix == "/" {
+        return Some(path.trim_start_matches('/').to_string());
+    }
+
+    if path == prefix {
+        return Some(String::new());
+    }
+
+    let boundary = format!("{prefix}/");
+    path.strip_prefix(&boundary)
+        .map(|value| value.trim_start_matches('/').to_string())
+}
+
+fn sanitize_relative_path(path: &str, allow_dotfiles: bool) -> Result<PathBuf, StaticPathError> {
+    let mut sanitized = PathBuf::new();
+    for component in Path::new(path).components() {
+        match component {
+            Component::Normal(part) => {
+                let part_str = part.to_string_lossy();
+                if !allow_dotfiles && part_str.starts_with('.') {
+                    return Err(StaticPathError::DotfileDenied);
+                }
+                sanitized.push(part);
+            }
+            Component::CurDir => continue,
+            Component::RootDir | Component::Prefix(_) | Component::ParentDir => {
+                return Err(StaticPathError::InvalidPath);
+            }
+        }
+    }
+
+    Ok(sanitized)
+}
+
+async fn canonicalize_path(path: PathBuf) -> io::Result<PathBuf> {
+    smol::unblock(move || std::fs::canonicalize(path)).await
+}
+
+async fn read_file_bytes(path: PathBuf) -> io::Result<Vec<u8>> {
+    smol::unblock(move || std::fs::read(path)).await
+}
+
+fn content_type_for_path(path: &Path) -> &'static str {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("css") => "text/css; charset=utf-8",
+        Some("js") => "application/javascript; charset=utf-8",
+        Some("html") => "text/html; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("ico") => "image/x-icon",
+        Some("txt") => "text/plain; charset=utf-8",
+        Some("wasm") => "application/wasm",
+        _ => "application/octet-stream",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{MiddlewareFn, Next, cors, dispatch, rate_limit, request_id, security_headers};
+    use super::{
+        MiddlewareFn, Next, StaticDirOptions, cors, dispatch, rate_limit, request_id,
+        security_headers, static_dir,
+    };
     use crate::http::router::Handler;
     use crate::http::{Request, Response};
+    use std::fs;
     use std::sync::{Arc, Mutex};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_request(path: &str) -> Request {
         let raw = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n");
         Request::from_bytes(raw.as_bytes()).expect("request should parse")
+    }
+
+    fn test_request_with_method(method: &str, path: &str) -> Request {
+        let raw = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        Request::from_bytes(raw.as_bytes()).expect("request should parse")
+    }
+
+    fn temp_dir(prefix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&path).expect("temp dir should be created");
+        path
     }
 
     #[test]
@@ -369,6 +639,97 @@ mod tests {
 
             assert_eq!(first.status_code(), 200);
             assert_eq!(second.status_code(), 429);
+        });
+    }
+
+    #[test]
+    fn static_dir_serves_file_with_cache_header() {
+        smol::block_on(async {
+            let root = temp_dir("static-dir");
+            fs::write(root.join("app.css"), "body{}").expect("fixture file should be written");
+
+            let endpoint: Handler =
+                Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
+            let middleware: MiddlewareFn = Arc::new(static_dir(
+                "/assets",
+                root.clone(),
+                StaticDirOptions::default(),
+            ));
+
+            let response = dispatch(
+                0,
+                test_request("/assets/app.css"),
+                Arc::new(vec![middleware]),
+                endpoint,
+            )
+            .await;
+            let raw =
+                String::from_utf8(response.to_http_bytes()).expect("response should be utf-8");
+
+            assert_eq!(response.status_code(), 200);
+            assert!(raw.contains("Content-Type: text/css; charset=utf-8"));
+            assert!(raw.contains("Cache-Control: public, max-age=300"));
+
+            fs::remove_dir_all(root).expect("temp dir cleanup should succeed");
+        });
+    }
+
+    #[test]
+    fn static_dir_denies_dotfiles_by_default() {
+        smol::block_on(async {
+            let root = temp_dir("static-dotfiles");
+            fs::write(root.join(".env"), "SECRET=1").expect("fixture file should be written");
+
+            let endpoint: Handler =
+                Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
+            let middleware: MiddlewareFn = Arc::new(static_dir(
+                "/assets",
+                root.clone(),
+                StaticDirOptions::default(),
+            ));
+
+            let response = dispatch(
+                0,
+                test_request("/assets/.env"),
+                Arc::new(vec![middleware]),
+                endpoint,
+            )
+            .await;
+
+            assert_eq!(response.status_code(), 404);
+            fs::remove_dir_all(root).expect("temp dir cleanup should succeed");
+        });
+    }
+
+    #[test]
+    fn static_dir_can_serve_head_without_body() {
+        smol::block_on(async {
+            let root = temp_dir("static-head");
+            fs::write(root.join("hello.txt"), "hello").expect("fixture file should be written");
+
+            let endpoint: Handler =
+                Arc::new(move |_request: Request| Box::pin(async { Response::not_found() }));
+            let middleware: MiddlewareFn = Arc::new(static_dir(
+                "/assets",
+                root.clone(),
+                StaticDirOptions::default(),
+            ));
+
+            let response = dispatch(
+                0,
+                test_request_with_method("HEAD", "/assets/hello.txt"),
+                Arc::new(vec![middleware]),
+                endpoint,
+            )
+            .await;
+            let raw =
+                String::from_utf8(response.to_http_bytes()).expect("response should be utf-8");
+
+            assert_eq!(response.status_code(), 200);
+            assert!(raw.contains("Content-Length: 5\r\n"));
+            assert!(!raw.ends_with("hello"));
+
+            fs::remove_dir_all(root).expect("temp dir cleanup should succeed");
         });
     }
 }
