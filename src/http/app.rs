@@ -54,7 +54,7 @@ impl App {
         self
     }
 
-    pub fn r#use<F, Fut>(mut self, middleware: F) -> Self
+    pub fn middleware<F, Fut>(mut self, middleware: F) -> Self
     where
         F: Fn(Request, Next) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Response> + Send + 'static,
