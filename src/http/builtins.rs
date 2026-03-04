@@ -204,13 +204,17 @@ pub fn logger() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 's
         Box::pin(async move {
             let method = request.method.clone();
             let path = request.path.clone();
+            let request_id = request
+                .header("x-request-id")
+                .unwrap_or("missing")
+                .to_string();
             let started = Instant::now();
 
             let response = next.run(request).await;
             let elapsed_ms = started.elapsed().as_millis();
 
             println!(
-                "[request] {method} {path} -> {} ({elapsed_ms}ms)",
+                "[request] id={request_id} {method} {path} -> {} ({elapsed_ms}ms)",
                 response.status_code()
             );
 
@@ -232,6 +236,11 @@ pub fn request_id() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync 
                 })
                 .map(str::to_owned)
                 .unwrap_or_else(generate_request_id);
+
+            let mut request = request;
+            request
+                .headers
+                .insert("x-request-id".to_string(), request_id.clone());
 
             next.run(request).await.header("X-Request-Id", request_id)
         })
