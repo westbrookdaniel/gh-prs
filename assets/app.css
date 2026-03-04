@@ -10,6 +10,9 @@
   --ok: #1b6d4f;
   --radius: 14px;
   --shadow: 0 10px 34px rgba(18, 40, 33, 0.1);
+  --tab: #eef3ef;
+  --tab-active: #ffffff;
+  --tab-border: #cfd8d2;
 }
 
 * {
@@ -72,6 +75,10 @@ code {
   z-index: 1;
 }
 
+.changes-page {
+  width: min(1320px, 100%);
+}
+
 .page.narrow {
   width: min(760px, 100%);
 }
@@ -89,6 +96,22 @@ code {
   background:
     linear-gradient(132deg, rgba(31, 122, 91, 0.08), rgba(31, 122, 91, 0)),
     var(--panel);
+}
+
+.dense-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 0.7rem;
+}
+
+.count-pill {
+  align-self: center;
+  justify-self: end;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--tab-border);
+  background: #f4f7f4;
 }
 
 .eyebrow {
@@ -135,7 +158,7 @@ code {
 .pr-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 840px;
+  min-width: 760px;
 }
 
 .pr-table th,
@@ -194,9 +217,16 @@ code {
   border-radius: 10px;
   padding: 0.7rem;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 100%;
   font-size: 0.94rem;
   line-height: 1.45;
   overflow-x: auto;
+}
+
+.body-block code,
+.body-block pre {
+  max-width: 100%;
 }
 
 .stack {
@@ -242,6 +272,23 @@ textarea,
 select,
 button {
   font: inherit;
+}
+
+button,
+.filter-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+}
+
+.filter-actions a {
+  border-radius: 10px;
+  border: 1px solid var(--tab-border);
+  text-decoration: none;
+  padding: 0.5rem 0.85rem;
+  background: #fff;
+  color: var(--ink);
 }
 
 textarea,
@@ -300,6 +347,108 @@ button:hover {
   border-top: 4px solid #c55343;
 }
 
+.tabs-shell {
+  padding: 0.55rem 0.75rem;
+}
+
+.tab-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.tab-link {
+  border: 1px solid var(--tab-border);
+  background: var(--tab);
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-radius: 10px;
+  padding: 0.45rem 0.72rem;
+  font-size: 0.9rem;
+}
+
+.tab-link.is-active {
+  background: var(--tab-active);
+  color: var(--ink);
+  border-color: #aebcb4;
+  font-weight: 650;
+}
+
+.changes-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.diff-tree {
+  position: sticky;
+  top: 0.75rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
+.tree-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.diff-content {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.diff-file summary {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.diff-file-name {
+  font-weight: 650;
+}
+
+.diff-block {
+  overflow-x: auto;
+  white-space: pre;
+  max-width: 100%;
+}
+
+.diff-line {
+  display: block;
+  max-width: 100%;
+}
+
+.diff-line.diff-hunk {
+  background: #eef2fb;
+  color: #253a64;
+}
+
+.diff-line.diff-add {
+  background: #ebf9ef;
+  color: #1f5f38;
+}
+
+.diff-line.diff-del {
+  background: #fdeeee;
+  color: #83322a;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
 @media (max-width: 900px) {
   .grid.two-up {
     grid-template-columns: 1fr;
@@ -307,6 +456,23 @@ button:hover {
 
   .filter-form {
     grid-template-columns: 1fr;
+  }
+
+  .dense-header {
+    grid-template-columns: 1fr;
+  }
+
+  .count-pill {
+    justify-self: start;
+  }
+
+  .changes-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-tree {
+    position: static;
+    max-height: none;
   }
 }
 

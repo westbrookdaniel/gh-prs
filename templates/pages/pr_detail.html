@@ -1,36 +1,44 @@
 {% extends "layouts/base.html" %}
 
-{% block title %}{{ page_title }}{% endblock %}
+{% block title %}{{ model.page_title }}{% endblock %}
 
 {% block content %}
 <main class="page">
   <section class="panel page-header">
-    <p class="eyebrow"><a href="/prs">Back to list</a></p>
-    <p class="meta">repository: <a href="{{ repo_url }}">{{ repo_name }}</a></p>
-    <h1 class="page-title">PR #{{ header.number }} · {{ header.title }}</h1>
+    <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
+    <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a></p>
+    <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
     <p class="meta">
-      state: <strong>{{ header.state_label }}</strong> · {{ header.draft_label }} · review: <strong>{% if header.review_decision.is_empty() %}NONE{% else %}{{ header.review_decision }}{% endif %}</strong>
+      state: <strong>{{ model.header.state_label }}</strong> · {{ model.header.draft_label }} · review: <strong>{% if model.header.review_decision.is_empty() %}NONE{% else %}{{ model.header.review_decision }}{% endif %}</strong>
     </p>
     <p class="meta">
-      author: <strong>{{ header.author }}</strong> · created: {{ header.created_at }} · updated: {{ header.updated_at }}
+      author: <strong>{{ model.header.author }}</strong> · created: {{ model.header.created_at }} · updated: {{ model.header.updated_at }}
     </p>
     <p class="meta">
-      base: <code>{{ header.base_ref_name }}</code> · head: <code>{{ header.head_ref_name }}</code> · merge state: <strong>{{ header.merge_state_status }}</strong>
+      base: <code>{{ model.header.base_ref_name }}</code> · head: <code>{{ model.header.head_ref_name }}</code> · merge state: <strong>{{ model.header.merge_state_status }}</strong>
     </p>
     <p class="meta">
-      commits: <strong>{{ header.commit_count }}</strong> · files: <strong>{{ header.file_count }}</strong> · <a href="{{ header.url }}">Open on GitHub</a>
+      commits: <strong>{{ model.header.commit_count }}</strong> · files: <strong>{{ model.header.file_count }}</strong> · <a href="{{ model.header.url }}">Open on GitHub</a>
     </p>
   </section>
 
-  {% if let Some(flash) = flash %}
+  {% if let Some(flash) = model.flash %}
   <section class="panel flash flash-{{ flash.kind }}">{{ flash.message }}</section>
   {% endif %}
+
+  <section class="panel tabs-shell">
+    <nav class="tab-strip" aria-label="Pull request sections">
+      {% for tab in model.tabs %}
+      <a class="tab-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
+      {% endfor %}
+    </nav>
+  </section>
 
   <section class="grid two-up">
     <article class="panel">
       <h2>Requested Reviewers</h2>
       <ul class="simple-list">
-        {% for reviewer in requested_reviewers %}
+        {% for reviewer in model.requested_reviewers %}
         <li>{{ reviewer }}</li>
         {% endfor %}
       </ul>
@@ -38,7 +46,7 @@
     <article class="panel">
       <h2>Latest Review Decisions</h2>
       <ul class="simple-list">
-        {% for review in reviewer_decisions %}
+        {% for review in model.reviewer_decisions %}
         <li>
           <strong>{{ review.reviewer }}</strong> · {{ review.state }} · {{ review.submitted_at }}
         </li>
@@ -49,31 +57,31 @@
 
   <section class="panel">
     <h2>Status Checks</h2>
-    <p class="meta">{{ checks.headline }}</p>
+    <p class="meta">{{ model.checks.headline }}</p>
     <ul class="checks">
-      <li>total: {{ checks.total }}</li>
-      <li>passing: {{ checks.successful }}</li>
-      <li>failing: {{ checks.failed }}</li>
-      <li>pending: {{ checks.pending }}</li>
-      <li>neutral: {{ checks.neutral }}</li>
+      <li>total: {{ model.checks.total }}</li>
+      <li>passing: {{ model.checks.successful }}</li>
+      <li>failing: {{ model.checks.failed }}</li>
+      <li>pending: {{ model.checks.pending }}</li>
+      <li>neutral: {{ model.checks.neutral }}</li>
     </ul>
   </section>
 
   <section class="panel">
     <h2>Pull Request Body</h2>
-    {% if body.is_empty() %}
+    {% if model.body.is_empty() %}
     <p class="empty">No PR body.</p>
     {% else %}
-    <pre class="body-block">{{ body }}</pre>
+    <pre class="body-block">{{ model.body }}</pre>
     {% endif %}
   </section>
 
   <section class="panel">
     <h2>Issue Comments</h2>
-    {% if issue_comments.is_empty() %}
+    {% if model.issue_comments.is_empty() %}
     <p class="empty">No issue comments.</p>
     {% else %}
-    {% for comment in issue_comments %}
+    {% for comment in model.issue_comments %}
     <article class="thread-item">
       <p class="meta"><strong>{{ comment.author }}</strong> · {{ comment.created_at }} · <a href="{{ comment.url }}">GitHub</a></p>
       <pre class="body-block">{{ comment.body }}</pre>
@@ -84,10 +92,10 @@
 
   <section class="panel">
     <h2>Review Summaries</h2>
-    {% if reviews.is_empty() %}
+    {% if model.reviews.is_empty() %}
     <p class="empty">No reviews yet.</p>
     {% else %}
-    {% for review in reviews %}
+    {% for review in model.reviews %}
     <article class="thread-item">
       <p class="meta"><strong>{{ review.author }}</strong> · {{ review.state }} · {{ review.submitted_at }} · <a href="{{ review.url }}">GitHub</a></p>
       <pre class="body-block">{{ review.body }}</pre>
@@ -98,10 +106,10 @@
 
   <section class="panel">
     <h2>Review Comments</h2>
-    {% if review_comments.is_empty() %}
+    {% if model.review_comments.is_empty() %}
     <p class="empty">No inline review comments.</p>
     {% else %}
-    {% for comment in review_comments %}
+    {% for comment in model.review_comments %}
     <article class="thread-item">
       <p class="meta"><strong>{{ comment.author }}</strong> · {{ comment.path }} · {{ comment.line_label }} · <a href="{{ comment.url }}">GitHub</a></p>
       <pre class="body-block">{{ comment.body }}</pre>
@@ -113,7 +121,7 @@
   <section class="grid two-up">
     <article class="panel">
       <h2>Submit Comment</h2>
-      <form method="post" action="{{ comment_post_path }}" class="stack">
+      <form method="post" action="{{ model.comment_post_path }}" class="stack">
         <label for="comment-body">Comment body</label>
         <textarea id="comment-body" name="body" rows="6" required></textarea>
         <button type="submit">Post Comment</button>
@@ -122,7 +130,7 @@
 
     <article class="panel">
       <h2>Submit Review</h2>
-      <form method="post" action="{{ review_post_path }}" class="stack">
+      <form method="post" action="{{ model.review_post_path }}" class="stack">
         <label for="review-event">Review action</label>
         <select id="review-event" name="event" required>
           <option value="approve">Approve</option>

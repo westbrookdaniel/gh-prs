@@ -1,0 +1,41 @@
+use crate::gh::models::RepoContext;
+use crate::handlers::context::{parse_pr_number, repo_from_request};
+use crate::handlers::flash::flash_from_query;
+use crate::handlers::format::{render_gh_error, render_template};
+use crate::handlers::state::SharedState;
+use crate::http::{Request, Response};
+use crate::views::{PrDetailTemplate, detail_page_model};
+
+pub async fn pull_request_detail(request: Request, state: SharedState) -> Response {
+    let flash = flash_from_query(&request);
+
+    if let Err(err) = state.startup_ready() {
+        return render_gh_error(err);
+    }
+
+    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
+        Ok(repo) => repo,
+        Err(err) => return render_gh_error(err),
+    };
+
+    let repo_context = RepoContext {
+        name_with_owner: repo_name.clone(),
+        url: format!("https://github.com/{repo_name}"),
+        viewer_permission: "UNKNOWN".to_string(),
+        default_branch: "main".to_string(),
+    };
+
+    let number = match parse_pr_number(&request) {
+        Ok(number) => number,
+        Err(err) => return render_gh_error(err),
+    };
+
+    match state.gh.pull_request_conversation(&repo_name, number).await {
+        Ok(conversation) => {
+            let model = detail_page_model(&repo_context, conversation, flash, &request);
+            let template = PrDetailTemplate { model };
+            render_template(200, "OK", &template)
+        }
+        Err(err) => render_gh_error(err),
+    }
+}

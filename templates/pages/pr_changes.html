@@ -1,0 +1,71 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}{{ model.page_title }}{% endblock %}
+
+{% block content %}
+<main class="page changes-page">
+  <section class="panel page-header">
+    <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
+    <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a></p>
+    <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
+    <p class="meta">
+      state: <strong>{{ model.header.state_label }}</strong> · {{ model.header.draft_label }} · files: <strong>{{ model.header.file_count }}</strong>
+    </p>
+  </section>
+
+  {% if let Some(flash) = model.flash %}
+  <section class="panel flash flash-{{ flash.kind }}">{{ flash.message }}</section>
+  {% endif %}
+
+  <section class="panel tabs-shell">
+    <nav class="tab-strip" aria-label="Pull request sections">
+      {% for tab in model.tabs %}
+      <a class="tab-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
+      {% endfor %}
+    </nav>
+  </section>
+
+  <section class="changes-layout">
+    <aside class="panel diff-tree">
+      <h2>Files</h2>
+      <ul class="tree-list">
+        {% for item in model.tree_items %}
+        <li><a href="#{{ item.id }}">{{ item.filename }}</a> <span class="meta">+{{ item.additions }} -{{ item.deletions }}</span></li>
+        {% endfor %}
+      </ul>
+    </aside>
+
+    <div class="diff-content">
+      {% if model.files.is_empty() %}
+      <section class="panel"><p class="empty">No changed files were returned.</p></section>
+      {% endif %}
+
+      {% for file in model.files %}
+      <section id="{{ file.id }}" class="panel diff-file">
+        <details {% if !file.is_collapsed %}open{% endif %}>
+          <summary>
+            <span class="diff-file-name">{{ file.filename }}</span>
+            <span class="meta">{{ file.status }} · +{{ file.additions }} -{{ file.deletions }} · {{ file.changes }} changes</span>
+          </summary>
+
+          {% if let Some(previous) = file.previous_filename %}
+          <p class="meta">renamed from {{ previous }}</p>
+          {% endif %}
+
+          {% if file.has_patch %}
+          <pre class="body-block diff-block">{% for line in file.lines %}<span class="diff-line diff-{{ line.kind_class }}">{{ line.text }}</span>
+{% endfor %}</pre>
+          {% else %}
+          <p class="empty">Patch not available for this file.</p>
+          {% endif %}
+
+          {% if !file.blob_url.is_empty() %}
+          <p class="meta"><a href="{{ file.blob_url }}">View file on GitHub</a></p>
+          {% endif %}
+        </details>
+      </section>
+      {% endfor %}
+    </div>
+  </section>
+</main>
+{% endblock %}

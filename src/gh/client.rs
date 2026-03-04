@@ -1,26 +1,20 @@
+use crate::gh::cache::{CommandCache, cache_ttl};
 use crate::gh::models::{
     MAX_SEARCH_LIMIT, PreflightDiagnostics, PullRequestConversation, PullRequestDetail,
-    PullRequestListItem, PullRequestReview, PullRequestReviewComment, PullRequestSearchItem,
-    PullRequestSearchQuery, PullRequestStatus, RepoContext, parse_issue_comments,
-    parse_preflight_auth, parse_pull_request_detail, parse_pull_request_list,
-    parse_pull_request_review_comments, parse_pull_request_reviews, parse_pull_request_search,
-    parse_repo_context,
+    PullRequestFile, PullRequestListItem, PullRequestReview, PullRequestReviewComment,
+    PullRequestSearchItem, PullRequestSearchQuery, PullRequestStatus, RepoContext,
+    parse_issue_comments, parse_preflight_auth, parse_pull_request_detail,
+    parse_pull_request_files, parse_pull_request_list, parse_pull_request_review_comments,
+    parse_pull_request_reviews, parse_pull_request_search, parse_repo_context,
 };
 use crate::gh::{CommandClass, GhError, GhResult};
-use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(12);
-const CACHE_TTL_PREFLIGHT: Duration = Duration::from_secs(120);
-const CACHE_TTL_REPO_CONTEXT: Duration = Duration::from_secs(90);
-const CACHE_TTL_PR_SEARCH: Duration = Duration::from_secs(30);
-const CACHE_TTL_PR_DETAIL: Duration = Duration::from_secs(20);
 const MAX_WRITE_BODY_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,73 +206,9 @@ impl CommandRunner for SystemCommandRunner {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct CacheKey {
-    class: CommandClass,
-    args: Vec<String>,
-    stdin_hash: Option<u64>,
-}
-
-#[derive(Debug, Clone)]
-struct CacheEntry {
-    expires_at: Instant,
-    result: CommandResult,
-}
-
-#[derive(Default)]
-struct CommandCache {
-    entries: Mutex<HashMap<CacheKey, CacheEntry>>,
-}
-
-impl CommandCache {
-    fn get(&self, key: &CacheKey) -> Option<CommandResult> {
-        let mut entries = self.entries.lock().expect("cache lock poisoned");
-        let Some(entry) = entries.get(key).cloned() else {
-            return None;
-        };
-
-        if Instant::now() >= entry.expires_at {
-            entries.remove(key);
-            return None;
-        }
-
-        Some(entry.result)
-    }
-
-    fn insert(&self, key: CacheKey, ttl: Duration, result: CommandResult) {
-        if ttl.is_zero() {
-            return;
-        }
-
-        let mut entries = self.entries.lock().expect("cache lock poisoned");
-        entries.insert(
-            key,
-            CacheEntry {
-                expires_at: Instant::now() + ttl,
-                result,
-            },
-        );
-    }
-
-    fn invalidate_pull_request_reads(&self) {
-        let mut entries = self.entries.lock().expect("cache lock poisoned");
-        entries.retain(|key, _| {
-            !matches!(
-                key.class,
-                CommandClass::PullRequestSearch
-                    | CommandClass::PullRequestList
-                    | CommandClass::PullRequestDetail
-                    | CommandClass::IssueComments
-                    | CommandClass::PullRequestReviews
-                    | CommandClass::PullRequestReviewComments
-            )
-        });
-    }
-}
-
 pub struct GhClient {
     runner: Arc<dyn CommandRunner>,
-    cache: Arc<CommandCache>,
+    cache: Arc<CommandCache<CommandResult>>,
     timeout: Duration,
 }
 
@@ -307,21 +237,28 @@ impl GhClient {
     pub fn with_runner(runner: Arc<dyn CommandRunner>, timeout: Duration) -> Self {
         Self {
             runner,
-            cache: Arc::new(CommandCache::default()),
+            cache: Arc::new(CommandCache::<CommandResult>::default()),
             timeout,
         }
     }
 
     pub async fn run_command(&self, command: GhCommand) -> GhResult<CommandResult> {
-        if let Some((key, ttl)) = cache_identity(&command) {
-            if let Some(cached) = self.cache.get(&key) {
-                println!("[gh] class={} cache=hit", command.class.as_str(),);
+        if let Some(ttl) = cache_ttl(command.class) {
+            let class = command.class;
+            let args = command.args.clone();
+            let stdin = command.stdin.clone();
+            let key_count = args.len();
+
+            if let Some(cached) = self.cache.lookup(class, &args, stdin.as_deref()) {
+                println!("[gh] class={} cache=hit args={key_count}", class.as_str(),);
                 return Ok(cached);
             }
 
             let runner = Arc::clone(&self.runner);
             let computed = smol::unblock(move || runner.run(command)).await?;
-            self.cache.insert(key, ttl, computed.clone());
+            self.cache
+                .store(class, &args, stdin.as_deref(), ttl, computed.clone());
+            println!("[gh] class={} cache=store args={key_count}", class.as_str());
             return Ok(computed);
         }
 
@@ -533,6 +470,35 @@ impl GhClient {
             issue_comments,
             reviews,
             review_comments,
+        })
+    }
+
+    pub async fn pull_request_files(
+        &self,
+        repo: &str,
+        number: u64,
+    ) -> GhResult<Vec<PullRequestFile>> {
+        let repo = validate_repo_identifier(repo)?;
+        validate_pr_number(number)?;
+
+        let result = self
+            .run_command(
+                GhCommand::new(
+                    CommandClass::PullRequestFiles,
+                    vec![
+                        "api".to_string(),
+                        format!("repos/{repo}/pulls/{number}/files?per_page=100"),
+                    ],
+                    self.timeout,
+                )
+                .with_repo_hint(repo)
+                .with_pr_number(number),
+            )
+            .await?;
+
+        parse_pull_request_files(&result.stdout).map_err(|details| GhError::ParseFailure {
+            class: CommandClass::PullRequestFiles,
+            details,
         })
     }
 
@@ -796,39 +762,6 @@ fn collect_pipe_output(
     Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
-fn cache_identity(command: &GhCommand) -> Option<(CacheKey, Duration)> {
-    let ttl = cache_ttl(command.class)?;
-    let stdin_hash = command.stdin.as_ref().map(|bytes| {
-        let mut hasher = DefaultHasher::new();
-        bytes.hash(&mut hasher);
-        hasher.finish()
-    });
-
-    Some((
-        CacheKey {
-            class: command.class,
-            args: command.args.clone(),
-            stdin_hash,
-        },
-        ttl,
-    ))
-}
-
-fn cache_ttl(class: CommandClass) -> Option<Duration> {
-    match class {
-        CommandClass::PreflightVersion | CommandClass::PreflightAuth => Some(CACHE_TTL_PREFLIGHT),
-        CommandClass::ResolveRepo => Some(CACHE_TTL_REPO_CONTEXT),
-        CommandClass::PullRequestSearch | CommandClass::PullRequestList => {
-            Some(CACHE_TTL_PR_SEARCH)
-        }
-        CommandClass::PullRequestDetail
-        | CommandClass::IssueComments
-        | CommandClass::PullRequestReviews
-        | CommandClass::PullRequestReviewComments => Some(CACHE_TTL_PR_DETAIL),
-        CommandClass::SubmitComment | CommandClass::SubmitReview => None,
-    }
-}
-
 fn validate_repo_identifier(repo: &str) -> GhResult<String> {
     let repo = repo.trim();
     let (owner, name) = repo.split_once('/').ok_or_else(|| GhError::InvalidInput {
@@ -899,8 +832,8 @@ fn normalize_write_body(body: &str) -> GhResult<String> {
 mod tests {
     use super::{
         CommandResult, CommandRunner, DEFAULT_COMMAND_TIMEOUT, GhClient, GhCommand, ReviewEvent,
-        cache_identity, cache_ttl,
     };
+    use crate::gh::cache::cache_ttl;
     use crate::gh::models::{
         PullRequestOrder, PullRequestSearchQuery, PullRequestSort, PullRequestStatus,
     };
@@ -1268,15 +1201,32 @@ mod tests {
 
     #[test]
     fn cache_identity_and_ttl_for_search_commands() {
-        let command = GhCommand::new(
-            CommandClass::PullRequestSearch,
-            vec!["search".to_string(), "prs".to_string()],
-            Duration::from_secs(1),
-        );
-
-        let (key, ttl) = cache_identity(&command).expect("search should be cacheable");
-        assert_eq!(key.class, CommandClass::PullRequestSearch);
+        let ttl = cache_ttl(CommandClass::PullRequestSearch).expect("search should be cacheable");
         assert!(ttl > Duration::from_secs(0));
         assert!(cache_ttl(CommandClass::SubmitComment).is_none());
+    }
+
+    #[test]
+    fn pull_request_files_command_uses_rest_api_endpoint() {
+        smol::block_on(async {
+            let runner = Arc::new(MockRunner::with_responses(vec![ok("[]")]));
+            let client = GhClient::with_runner(
+                Arc::clone(&runner) as Arc<dyn CommandRunner>,
+                DEFAULT_COMMAND_TIMEOUT,
+            );
+
+            let _ = client.pull_request_files("acme/widgets", 8).await;
+            let command = runner
+                .seen_commands()
+                .into_iter()
+                .next()
+                .expect("one command");
+            assert_eq!(command.class, CommandClass::PullRequestFiles);
+            assert!(
+                command
+                    .args
+                    .contains(&"repos/acme/widgets/pulls/8/files?per_page=100".to_string())
+            );
+        });
     }
 }

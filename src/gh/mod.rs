@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod client;
 pub mod models;
 
@@ -12,6 +13,7 @@ pub enum CommandClass {
     PullRequestSearch,
     PullRequestList,
     PullRequestDetail,
+    PullRequestFiles,
     IssueComments,
     PullRequestReviews,
     PullRequestReviewComments,
@@ -28,6 +30,7 @@ impl CommandClass {
             Self::PullRequestSearch => "pr.search",
             Self::PullRequestList => "pr.list",
             Self::PullRequestDetail => "pr.detail",
+            Self::PullRequestFiles => "pr.files",
             Self::IssueComments => "pr.issue_comments",
             Self::PullRequestReviews => "pr.reviews",
             Self::PullRequestReviewComments => "pr.review_comments",

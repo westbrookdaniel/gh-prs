@@ -227,6 +227,18 @@ pub struct PullRequestReviewComment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequestFile {
+    pub filename: String,
+    pub status: String,
+    pub additions: usize,
+    pub deletions: usize,
+    pub changes: usize,
+    pub previous_filename: Option<String>,
+    pub patch: Option<String>,
+    pub blob_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PullRequestConversation {
     pub detail: PullRequestDetail,
     pub issue_comments: Vec<IssueComment>,
@@ -400,6 +412,25 @@ struct PullRequestReviewCommentRaw {
     updated_at: String,
     #[serde(rename = "html_url", default)]
     html_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PullRequestFileRaw {
+    #[serde(default)]
+    filename: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    additions: usize,
+    #[serde(default)]
+    deletions: usize,
+    #[serde(default)]
+    changes: usize,
+    #[serde(rename = "previous_filename")]
+    previous_filename: Option<String>,
+    patch: Option<String>,
+    #[serde(rename = "blob_url", default)]
+    blob_url: String,
 }
 
 pub fn parse_repo_context(json: &str) -> Result<RepoContext, String> {
@@ -589,6 +620,24 @@ pub fn parse_pull_request_review_comments(
         .collect())
 }
 
+pub fn parse_pull_request_files(json: &str) -> Result<Vec<PullRequestFile>, String> {
+    let raw_items: Vec<PullRequestFileRaw> =
+        serde_json::from_str(json).map_err(|err| err.to_string())?;
+    Ok(raw_items
+        .into_iter()
+        .map(|raw| PullRequestFile {
+            filename: raw.filename,
+            status: raw.status.to_ascii_uppercase(),
+            additions: raw.additions,
+            deletions: raw.deletions,
+            changes: raw.changes,
+            previous_filename: raw.previous_filename,
+            patch: raw.patch,
+            blob_url: raw.blob_url,
+        })
+        .collect())
+}
+
 fn extract_user(user: Option<UserRaw>) -> String {
     user.and_then(|candidate| candidate.login.or(candidate.name))
         .filter(|value| !value.trim().is_empty())
@@ -771,8 +820,8 @@ fn collect_nodes(value: &Value) -> Vec<&Value> {
 mod tests {
     use super::{
         parse_issue_comments, parse_preflight_auth, parse_pull_request_detail,
-        parse_pull_request_list, parse_pull_request_review_comments, parse_pull_request_reviews,
-        parse_pull_request_search, parse_repo_context,
+        parse_pull_request_files, parse_pull_request_list, parse_pull_request_review_comments,
+        parse_pull_request_reviews, parse_pull_request_search, parse_repo_context,
     };
 
     #[test]
@@ -971,5 +1020,29 @@ mod tests {
         assert_eq!(parsed_reviews.len(), 1);
         assert_eq!(parsed_review_comments.len(), 1);
         assert_eq!(parsed_review_comments[0].path, "src/main.rs");
+    }
+
+    #[test]
+    fn parses_pull_request_files_payload() {
+        let json = r#"[
+          {
+            "filename": "src/main.rs",
+            "status": "modified",
+            "additions": 10,
+            "deletions": 2,
+            "changes": 12,
+            "previous_filename": "src/lib.rs",
+            "patch": "@@ -1,2 +1,3 @@",
+            "blob_url": "https://example/blob"
+          }
+        ]"#;
+
+        let files = parse_pull_request_files(json).expect("files should parse");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].filename, "src/main.rs");
+        assert_eq!(files[0].status, "MODIFIED");
+        assert_eq!(files[0].additions, 10);
+        assert_eq!(files[0].deletions, 2);
+        assert_eq!(files[0].patch.as_deref(), Some("@@ -1,2 +1,3 @@"));
     }
 }
