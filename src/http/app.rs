@@ -574,10 +574,129 @@ mod tests {
         response_for_read_error,
     };
     use crate::http::{Request, Response};
+    use async_channel::Sender;
+    use async_net::TcpStream;
+    use futures_lite::io::{AsyncReadExt, AsyncWriteExt};
+    use std::io;
+    use std::net::TcpListener as StdTcpListener;
     use std::time::Duration;
 
     async fn ok_handler(_request: Request) -> Response {
         Response::ok()
+    }
+
+    async fn start_test_server(
+        app: App,
+    ) -> io::Result<(String, Sender<()>, smol::Task<io::Result<()>>)> {
+        let address = next_test_address()?;
+        let (shutdown_tx, shutdown_rx) = async_channel::bounded::<()>(1);
+        let server_address = address.clone();
+
+        let task = smol::spawn(async move {
+            app.serve_with_shutdown(&server_address, async move {
+                let _ = shutdown_rx.recv().await;
+            })
+            .await
+        });
+
+        wait_for_server(&address).await?;
+        Ok((address, shutdown_tx, task))
+    }
+
+    fn next_test_address() -> io::Result<String> {
+        let listener = StdTcpListener::bind("127.0.0.1:0")?;
+        let address = listener.local_addr()?;
+        drop(listener);
+        Ok(address.to_string())
+    }
+
+    async fn wait_for_server(address: &str) -> io::Result<()> {
+        for _ in 0..100 {
+            if TcpStream::connect(address).await.is_ok() {
+                return Ok(());
+            }
+            smol::Timer::after(Duration::from_millis(10)).await;
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "server did not start in time",
+        ))
+    }
+
+    async fn send_single_request(address: &str, raw_request: &str) -> io::Result<Vec<u8>> {
+        let mut stream = TcpStream::connect(address).await?;
+        stream.write_all(raw_request.as_bytes()).await?;
+        stream.flush().await?;
+        read_http_response(&mut stream).await
+    }
+
+    async fn read_http_response(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
+        let mut response = Vec::with_capacity(1024);
+        let mut buffer = [0u8; 1024];
+        let mut expected_len: Option<usize> = None;
+
+        loop {
+            if let Some(expected_len) = expected_len {
+                if response.len() >= expected_len {
+                    break;
+                }
+            }
+
+            let read = stream.read(&mut buffer).await?;
+            if read == 0 {
+                if response.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "connection closed before response",
+                    ));
+                }
+                break;
+            }
+
+            response.extend_from_slice(&buffer[..read]);
+            if expected_len.is_none() {
+                if let Some(header_end) = super::find_bytes(&response, b"\r\n\r\n") {
+                    let content_length = parse_content_length(&response[..header_end]).unwrap_or(0);
+                    expected_len = Some(header_end + 4 + content_length);
+                }
+            }
+        }
+
+        Ok(response)
+    }
+
+    fn status_code(response: &[u8]) -> u16 {
+        let text = String::from_utf8_lossy(response);
+        text.lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(0)
+    }
+
+    fn header_value(response: &[u8], name: &str) -> Option<String> {
+        let text = String::from_utf8_lossy(response);
+        for line in text.lines().skip(1) {
+            if line.is_empty() {
+                break;
+            }
+            if let Some((header_name, header_value)) = line.split_once(':') {
+                if header_name.trim().eq_ignore_ascii_case(name) {
+                    return Some(header_value.trim().to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    fn body_bytes(response: &[u8]) -> Vec<u8> {
+        if let Some(header_end) = super::find_bytes(response, b"\r\n\r\n") {
+            return response[header_end + 4..].to_vec();
+        }
+
+        Vec::new()
     }
 
     #[test]
@@ -661,5 +780,229 @@ mod tests {
         let expected = expected_request_len(request, 1024).expect("length parse");
 
         assert_eq!(expected, Some(60));
+    }
+
+    #[test]
+    fn integration_serves_get_route_over_tcp() {
+        smol::block_on(async {
+            async fn route(_request: Request) -> Response {
+                Response::text("ok")
+            }
+
+            let (address, shutdown_tx, task) = start_test_server(App::new().get("/", route))
+                .await
+                .expect("server should start");
+
+            let response = send_single_request(
+                &address,
+                "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("request should succeed");
+
+            assert_eq!(status_code(&response), 200);
+            assert_eq!(body_bytes(&response), b"ok");
+
+            shutdown_tx.send(()).await.expect("shutdown signal");
+            assert!(task.await.is_ok());
+        });
+    }
+
+    #[test]
+    fn integration_supports_keep_alive_multiple_requests() {
+        smol::block_on(async {
+            async fn route(_request: Request) -> Response {
+                Response::text("pong")
+            }
+
+            let (address, shutdown_tx, task) =
+                start_test_server(App::new().get("/ping", route).max_connections(32))
+                    .await
+                    .expect("server should start");
+
+            let mut stream = TcpStream::connect(&address)
+                .await
+                .expect("client should connect");
+
+            stream
+                .write_all(
+                    b"GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n",
+                )
+                .await
+                .expect("first request write should succeed");
+            stream.flush().await.expect("flush should succeed");
+            let first = read_http_response(&mut stream)
+                .await
+                .expect("first response should succeed");
+
+            assert_eq!(status_code(&first), 200);
+            assert_eq!(
+                header_value(&first, "Connection").as_deref(),
+                Some("keep-alive")
+            );
+            assert_eq!(body_bytes(&first), b"pong");
+
+            stream
+                .write_all(b"GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                .await
+                .expect("second request write should succeed");
+            stream.flush().await.expect("flush should succeed");
+            let second = read_http_response(&mut stream)
+                .await
+                .expect("second response should succeed");
+
+            assert_eq!(status_code(&second), 200);
+            assert_eq!(
+                header_value(&second, "Connection").as_deref(),
+                Some("close")
+            );
+
+            shutdown_tx.send(()).await.expect("shutdown signal");
+            assert!(task.await.is_ok());
+        });
+    }
+
+    #[test]
+    fn integration_head_uses_get_handler_without_body() {
+        smol::block_on(async {
+            async fn route(_request: Request) -> Response {
+                Response::text("hello")
+            }
+
+            let (address, shutdown_tx, task) =
+                start_test_server(App::new().get("/users/:id", route))
+                    .await
+                    .expect("server should start");
+
+            let response = send_single_request(
+                &address,
+                "HEAD /users/42 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("request should succeed");
+
+            assert_eq!(status_code(&response), 200);
+            assert_eq!(
+                header_value(&response, "Content-Length").as_deref(),
+                Some("5")
+            );
+            assert!(body_bytes(&response).is_empty());
+
+            shutdown_tx.send(()).await.expect("shutdown signal");
+            assert!(task.await.is_ok());
+        });
+    }
+
+    #[test]
+    fn integration_options_returns_allow_header() {
+        smol::block_on(async {
+            async fn route(_request: Request) -> Response {
+                Response::text("ok")
+            }
+
+            let (address, shutdown_tx, task) =
+                start_test_server(App::new().get("/users/:id", route))
+                    .await
+                    .expect("server should start");
+
+            let response = send_single_request(
+                &address,
+                "OPTIONS /users/9 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("request should succeed");
+
+            assert_eq!(status_code(&response), 204);
+            let allow = header_value(&response, "Allow").unwrap_or_default();
+            assert!(allow.contains("GET"));
+            assert!(allow.contains("HEAD"));
+            assert!(allow.contains("OPTIONS"));
+
+            shutdown_tx.send(()).await.expect("shutdown signal");
+            assert!(task.await.is_ok());
+        });
+    }
+
+    #[test]
+    fn integration_rejects_payload_too_large() {
+        smol::block_on(async {
+            async fn route(_request: Request) -> Response {
+                Response::ok()
+            }
+
+            let body = "a".repeat(4096);
+            let request = format!(
+                "POST /upload HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+
+            let (address, shutdown_tx, task) =
+                start_test_server(App::new().max_request_size(128).post("/upload", route))
+                    .await
+                    .expect("server should start");
+
+            let response = send_single_request(&address, &request)
+                .await
+                .expect("request should succeed");
+
+            assert_eq!(status_code(&response), 413);
+
+            shutdown_tx.send(()).await.expect("shutdown signal");
+            assert!(task.await.is_ok());
+        });
+    }
+
+    #[test]
+    fn integration_times_out_incomplete_request() {
+        smol::block_on(async {
+            async fn route(_request: Request) -> Response {
+                Response::ok()
+            }
+
+            let (address, shutdown_tx, task) = start_test_server(
+                App::new()
+                    .read_timeout(Duration::from_millis(30))
+                    .get("/", route),
+            )
+            .await
+            .expect("server should start");
+
+            let mut stream = TcpStream::connect(&address)
+                .await
+                .expect("client should connect");
+            stream
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n")
+                .await
+                .expect("partial request should write");
+            stream.flush().await.expect("flush should succeed");
+
+            let response = read_http_response(&mut stream)
+                .await
+                .expect("timeout response should be returned");
+            assert_eq!(status_code(&response), 408);
+
+            shutdown_tx.send(()).await.expect("shutdown signal");
+            assert!(task.await.is_ok());
+        });
+    }
+
+    #[test]
+    fn integration_graceful_shutdown_stops_server() {
+        smol::block_on(async {
+            async fn route(_request: Request) -> Response {
+                Response::ok()
+            }
+
+            let (address, shutdown_tx, task) = start_test_server(App::new().get("/", route))
+                .await
+                .expect("server should start");
+
+            shutdown_tx.send(()).await.expect("shutdown signal");
+            assert!(task.await.is_ok());
+
+            let reconnect = TcpStream::connect(&address).await;
+            assert!(reconnect.is_err());
+        });
     }
 }
