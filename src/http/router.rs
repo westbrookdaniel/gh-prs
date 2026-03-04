@@ -9,14 +9,30 @@ pub type Handler = Arc<dyn Fn(Request) -> HandlerFuture + Send + Sync + 'static>
 
 #[derive(Default)]
 pub struct Router {
-    methods: HashMap<String, MethodRoutes>,
+    methods: HashMap<String, MethodTree>,
 }
 
 #[derive(Default)]
-struct MethodRoutes {
-    static_routes: HashMap<String, Handler>,
-    param_routes: Vec<(RoutePattern, Handler)>,
-    catch_all_routes: Vec<(RoutePattern, Handler)>,
+struct MethodTree {
+    root: Node,
+}
+
+#[derive(Default)]
+struct Node {
+    handler: Option<Handler>,
+    static_children: HashMap<String, Node>,
+    param_child: Option<ParamNode>,
+    catch_all_child: Option<CatchAllNode>,
+}
+
+struct ParamNode {
+    name: String,
+    node: Box<Node>,
+}
+
+struct CatchAllNode {
+    name: String,
+    handler: Handler,
 }
 
 #[derive(Clone)]
@@ -25,7 +41,9 @@ pub enum ResolveResult {
         handler: Handler,
         params: HashMap<String, String>,
     },
-    MethodNotAllowed,
+    MethodNotAllowed {
+        allow: Vec<String>,
+    },
     NotFound,
 }
 
@@ -48,103 +66,215 @@ impl Router {
         let pattern = RoutePattern::parse(pattern)?;
         let handler: Handler = Arc::new(move |request| Box::pin(handler(request)));
 
-        let routes = self.methods.entry(method).or_default();
-        match pattern.kind {
-            RouteKind::Static => {
-                routes.static_routes.insert(pattern.original, handler);
-            }
-            RouteKind::Param => {
-                routes.param_routes.push((pattern, handler));
-            }
-            RouteKind::CatchAll => {
-                routes.catch_all_routes.push((pattern, handler));
-            }
-        }
-
-        Ok(())
+        let tree = self.methods.entry(method).or_default();
+        tree.insert_route(&pattern, handler)
     }
 
     pub fn resolve(&self, method: &str, path: &str) -> ResolveResult {
         let method = method.to_ascii_uppercase();
         let normalized_path = normalize_path(path);
+        let parts = split_path(&normalized_path);
 
-        if let Some(routes) = self.methods.get(&method) {
-            if let Some(found) = Self::resolve_in_routes(routes, &normalized_path) {
+        if let Some(tree) = self.methods.get(&method) {
+            if let Some(found) = tree.resolve(parts.as_slice()) {
                 return found;
             }
         }
 
-        if let Some(routes) = self.methods.get("ANY") {
-            if let Some(found) = Self::resolve_in_routes(routes, &normalized_path) {
-                return found;
+        if method != "ANY" {
+            if let Some(tree) = self.methods.get("ANY") {
+                if let Some(found) = tree.resolve(parts.as_slice()) {
+                    return found;
+                }
             }
         }
 
-        if self.matches_any_method(&normalized_path) {
-            ResolveResult::MethodNotAllowed
-        } else {
+        let mut allow = self.allowed_methods_for_parts(parts.as_slice());
+        allow.retain(|registered_method| registered_method.as_str() != method.as_str());
+
+        if allow.is_empty() {
             ResolveResult::NotFound
+        } else {
+            ResolveResult::MethodNotAllowed { allow }
         }
     }
 
-    fn resolve_in_routes(routes: &MethodRoutes, path: &str) -> Option<ResolveResult> {
-        if let Some(handler) = routes.static_routes.get(path) {
-            return Some(ResolveResult::Found {
-                handler: handler.clone(),
-                params: HashMap::new(),
-            });
-        }
+    pub fn allowed_methods(&self, path: &str) -> Vec<String> {
+        let normalized_path = normalize_path(path);
+        let parts = split_path(&normalized_path);
 
-        for (pattern, handler) in &routes.param_routes {
-            if let Some(params) = pattern.match_path(path) {
-                return Some(ResolveResult::Found {
-                    handler: handler.clone(),
-                    params,
-                });
-            }
-        }
-
-        for (pattern, handler) in &routes.catch_all_routes {
-            if let Some(params) = pattern.match_path(path) {
-                return Some(ResolveResult::Found {
-                    handler: handler.clone(),
-                    params,
-                });
-            }
-        }
-
-        None
+        self.allowed_methods_for_parts(parts.as_slice())
     }
 
-    fn matches_any_method(&self, path: &str) -> bool {
-        self.methods.values().any(|routes| {
-            if routes.static_routes.contains_key(path) {
-                return true;
+    fn allowed_methods_for_parts(&self, parts: &[&str]) -> Vec<String> {
+        let mut allow = Vec::new();
+
+        for (method, tree) in &self.methods {
+            if method == "ANY" {
+                continue;
             }
-            routes
-                .param_routes
-                .iter()
-                .any(|(pattern, _)| pattern.match_path(path).is_some())
-                || routes
-                    .catch_all_routes
-                    .iter()
-                    .any(|(pattern, _)| pattern.match_path(path).is_some())
-        })
+            if tree.matches_path(parts) {
+                allow.push(method.clone());
+            }
+        }
+
+        if self
+            .methods
+            .get("ANY")
+            .is_some_and(|tree| tree.matches_path(parts))
+        {
+            allow.extend(
+                ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+                    .into_iter()
+                    .map(str::to_string),
+            );
+        }
+
+        allow.sort_unstable();
+        allow.dedup();
+        allow
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RouteKind {
-    Static,
-    Param,
-    CatchAll,
+impl MethodTree {
+    fn insert_route(&mut self, pattern: &RoutePattern, handler: Handler) -> Result<(), String> {
+        let mut current = &mut self.root;
+        for (index, segment) in pattern.segments.iter().enumerate() {
+            match segment {
+                Segment::Static(value) => {
+                    current = current.static_children.entry(value.clone()).or_default();
+                }
+                Segment::Param(name) => {
+                    if current.param_child.is_none() {
+                        current.param_child = Some(ParamNode {
+                            name: name.clone(),
+                            node: Box::new(Node::default()),
+                        });
+                    }
+
+                    let param = current
+                        .param_child
+                        .as_mut()
+                        .expect("param child must exist");
+                    if param.name != *name {
+                        return Err(format!(
+                            "ambiguous param route at segment {}: '{}' conflicts with '{}'",
+                            index + 1,
+                            name,
+                            param.name
+                        ));
+                    }
+
+                    current = param.node.as_mut();
+                }
+                Segment::CatchAll(name) => {
+                    if index != pattern.segments.len() - 1 {
+                        return Err(format!(
+                            "catch-all must be the final segment: {}",
+                            pattern.original
+                        ));
+                    }
+
+                    current.catch_all_child = Some(CatchAllNode {
+                        name: name.clone(),
+                        handler: Arc::clone(&handler),
+                    });
+                    return Ok(());
+                }
+            }
+        }
+
+        current.handler = Some(handler);
+        Ok(())
+    }
+
+    fn resolve(&self, parts: &[&str]) -> Option<ResolveResult> {
+        let mut params = HashMap::new();
+        resolve_node(&self.root, parts, 0, &mut params)
+    }
+
+    fn matches_path(&self, parts: &[&str]) -> bool {
+        matches_node(&self.root, parts, 0)
+    }
+}
+
+fn resolve_node(
+    node: &Node,
+    parts: &[&str],
+    index: usize,
+    params: &mut HashMap<String, String>,
+) -> Option<ResolveResult> {
+    if index == parts.len() {
+        if let Some(handler) = &node.handler {
+            return Some(ResolveResult::Found {
+                handler: Arc::clone(handler),
+                params: params.clone(),
+            });
+        }
+
+        if let Some(catch_all) = &node.catch_all_child {
+            params.insert(catch_all.name.clone(), String::new());
+            return Some(ResolveResult::Found {
+                handler: Arc::clone(&catch_all.handler),
+                params: params.clone(),
+            });
+        }
+
+        return None;
+    }
+
+    let segment = parts[index];
+
+    if let Some(child) = node.static_children.get(segment) {
+        if let Some(found) = resolve_node(child, parts, index + 1, params) {
+            return Some(found);
+        }
+    }
+
+    if let Some(param) = &node.param_child {
+        params.insert(param.name.clone(), segment.to_string());
+        if let Some(found) = resolve_node(param.node.as_ref(), parts, index + 1, params) {
+            return Some(found);
+        }
+        params.remove(&param.name);
+    }
+
+    if let Some(catch_all) = &node.catch_all_child {
+        params.insert(catch_all.name.clone(), parts[index..].join("/"));
+        return Some(ResolveResult::Found {
+            handler: Arc::clone(&catch_all.handler),
+            params: params.clone(),
+        });
+    }
+
+    None
+}
+
+fn matches_node(node: &Node, parts: &[&str], index: usize) -> bool {
+    if index == parts.len() {
+        return node.handler.is_some() || node.catch_all_child.is_some();
+    }
+
+    let segment = parts[index];
+    if let Some(child) = node.static_children.get(segment) {
+        if matches_node(child, parts, index + 1) {
+            return true;
+        }
+    }
+
+    if let Some(param) = &node.param_child {
+        if matches_node(param.node.as_ref(), parts, index + 1) {
+            return true;
+        }
+    }
+
+    node.catch_all_child.is_some()
 }
 
 #[derive(Debug, Clone)]
 struct RoutePattern {
     original: String,
     segments: Vec<Segment>,
-    kind: RouteKind,
 }
 
 #[derive(Debug, Clone)]
@@ -165,12 +295,9 @@ impl RoutePattern {
             return Ok(Self {
                 original: "/".to_string(),
                 segments: Vec::new(),
-                kind: RouteKind::Static,
             });
         }
 
-        let mut has_param = false;
-        let mut has_catch_all = false;
         let mut segments = Vec::new();
         let parts: Vec<&str> = clean.split('/').collect();
         let total_segments = parts.len();
@@ -180,11 +307,11 @@ impl RoutePattern {
                     "invalid route pattern with empty segment: {pattern}"
                 ));
             }
+
             if let Some(name) = part.strip_prefix(':') {
                 if name.is_empty() {
                     return Err(format!("empty param name in route: {pattern}"));
                 }
-                has_param = true;
                 segments.push(Segment::Param(name.to_string()));
                 continue;
             }
@@ -196,7 +323,6 @@ impl RoutePattern {
                 if index != total_segments - 1 {
                     return Err(format!("catch-all must be final segment: {pattern}"));
                 }
-                has_catch_all = true;
                 segments.push(Segment::CatchAll(name.to_string()));
                 continue;
             }
@@ -204,60 +330,10 @@ impl RoutePattern {
             segments.push(Segment::Static(part.to_string()));
         }
 
-        let kind = if has_catch_all {
-            RouteKind::CatchAll
-        } else if has_param {
-            RouteKind::Param
-        } else {
-            RouteKind::Static
-        };
-
         Ok(Self {
             original: normalize_path(pattern),
             segments,
-            kind,
         })
-    }
-
-    fn match_path(&self, path: &str) -> Option<HashMap<String, String>> {
-        let parts: Vec<&str> = split_path(path);
-        if self.segments.is_empty() {
-            return if parts.is_empty() {
-                Some(HashMap::new())
-            } else {
-                None
-            };
-        }
-
-        let mut params = HashMap::new();
-        let mut path_index = 0usize;
-        for segment in &self.segments {
-            match segment {
-                Segment::Static(value) => {
-                    if parts.get(path_index)? != &value.as_str() {
-                        return None;
-                    }
-                    path_index += 1;
-                }
-                Segment::Param(name) => {
-                    let value = parts.get(path_index)?;
-                    params.insert(name.clone(), (*value).to_string());
-                    path_index += 1;
-                }
-                Segment::CatchAll(name) => {
-                    let rest = parts[path_index..].join("/");
-                    params.insert(name.clone(), rest);
-                    path_index = parts.len();
-                    break;
-                }
-            }
-        }
-
-        if path_index == parts.len() {
-            Some(params)
-        } else {
-            None
-        }
     }
 }
 
@@ -277,7 +353,7 @@ fn normalize_path(path: &str) -> String {
 fn split_path(path: &str) -> Vec<&str> {
     path.trim_matches('/')
         .split('/')
-        .filter(|p| !p.is_empty())
+        .filter(|part| !part.is_empty())
         .collect()
 }
 
@@ -319,8 +395,18 @@ mod tests {
 
         assert!(matches!(
             router.resolve("POST", "/users/42"),
-            ResolveResult::MethodNotAllowed
+            ResolveResult::MethodNotAllowed { allow } if allow == vec!["GET"]
         ));
+    }
+
+    #[test]
+    fn reports_allowed_methods_for_path() {
+        let mut router = Router::new();
+        router.add_route("GET", "/users/:id", ok_handler).unwrap();
+        router.add_route("PATCH", "/users/:id", ok_handler).unwrap();
+
+        let allow = router.allowed_methods("/users/42");
+        assert_eq!(allow, vec!["GET".to_string(), "PATCH".to_string()]);
     }
 
     #[test]
@@ -339,6 +425,15 @@ mod tests {
     }
 
     #[test]
+    fn detects_ambiguous_param_names() {
+        let mut router = Router::new();
+        router.add_route("GET", "/users/:id", ok_handler).unwrap();
+        let result = router.add_route("GET", "/users/:name", ok_handler);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn sanity_performance_route_resolution() {
         let mut router = Router::new();
         router.add_route("GET", "/", ok_handler).unwrap();
@@ -354,7 +449,7 @@ mod tests {
         let elapsed = start.elapsed();
 
         assert!(
-            elapsed < Duration::from_secs(5),
+            elapsed < Duration::from_secs(3),
             "route resolution sanity check too slow: {elapsed:?}"
         );
     }
