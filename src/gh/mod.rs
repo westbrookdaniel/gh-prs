@@ -4,11 +4,12 @@ pub mod models;
 use std::fmt;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CommandClass {
     PreflightVersion,
     PreflightAuth,
     ResolveRepo,
+    PullRequestSearch,
     PullRequestList,
     PullRequestDetail,
     IssueComments,
@@ -24,6 +25,7 @@ impl CommandClass {
             Self::PreflightVersion => "preflight.version",
             Self::PreflightAuth => "preflight.auth",
             Self::ResolveRepo => "repo.resolve",
+            Self::PullRequestSearch => "pr.search",
             Self::PullRequestList => "pr.list",
             Self::PullRequestDetail => "pr.detail",
             Self::IssueComments => "pr.issue_comments",

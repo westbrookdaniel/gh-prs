@@ -1,17 +1,26 @@
 use crate::gh::models::{
-    PreflightDiagnostics, PullRequestConversation, PullRequestDetail, PullRequestListItem,
-    PullRequestReview, PullRequestReviewComment, RepoContext, parse_issue_comments,
+    MAX_SEARCH_LIMIT, PreflightDiagnostics, PullRequestConversation, PullRequestDetail,
+    PullRequestListItem, PullRequestReview, PullRequestReviewComment, PullRequestSearchItem,
+    PullRequestSearchQuery, PullRequestStatus, RepoContext, parse_issue_comments,
     parse_preflight_auth, parse_pull_request_detail, parse_pull_request_list,
-    parse_pull_request_review_comments, parse_pull_request_reviews, parse_repo_context,
+    parse_pull_request_review_comments, parse_pull_request_reviews, parse_pull_request_search,
+    parse_repo_context,
 };
 use crate::gh::{CommandClass, GhError, GhResult};
+use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(12);
+const CACHE_TTL_PREFLIGHT: Duration = Duration::from_secs(120);
+const CACHE_TTL_REPO_CONTEXT: Duration = Duration::from_secs(90);
+const CACHE_TTL_PR_SEARCH: Duration = Duration::from_secs(30);
+const CACHE_TTL_PR_DETAIL: Duration = Duration::from_secs(20);
 const MAX_WRITE_BODY_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,8 +212,73 @@ impl CommandRunner for SystemCommandRunner {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CacheKey {
+    class: CommandClass,
+    args: Vec<String>,
+    stdin_hash: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct CacheEntry {
+    expires_at: Instant,
+    result: CommandResult,
+}
+
+#[derive(Default)]
+struct CommandCache {
+    entries: Mutex<HashMap<CacheKey, CacheEntry>>,
+}
+
+impl CommandCache {
+    fn get(&self, key: &CacheKey) -> Option<CommandResult> {
+        let mut entries = self.entries.lock().expect("cache lock poisoned");
+        let Some(entry) = entries.get(key).cloned() else {
+            return None;
+        };
+
+        if Instant::now() >= entry.expires_at {
+            entries.remove(key);
+            return None;
+        }
+
+        Some(entry.result)
+    }
+
+    fn insert(&self, key: CacheKey, ttl: Duration, result: CommandResult) {
+        if ttl.is_zero() {
+            return;
+        }
+
+        let mut entries = self.entries.lock().expect("cache lock poisoned");
+        entries.insert(
+            key,
+            CacheEntry {
+                expires_at: Instant::now() + ttl,
+                result,
+            },
+        );
+    }
+
+    fn invalidate_pull_request_reads(&self) {
+        let mut entries = self.entries.lock().expect("cache lock poisoned");
+        entries.retain(|key, _| {
+            !matches!(
+                key.class,
+                CommandClass::PullRequestSearch
+                    | CommandClass::PullRequestList
+                    | CommandClass::PullRequestDetail
+                    | CommandClass::IssueComments
+                    | CommandClass::PullRequestReviews
+                    | CommandClass::PullRequestReviewComments
+            )
+        });
+    }
+}
+
 pub struct GhClient {
     runner: Arc<dyn CommandRunner>,
+    cache: Arc<CommandCache>,
     timeout: Duration,
 }
 
@@ -212,6 +286,7 @@ impl Clone for GhClient {
     fn clone(&self) -> Self {
         Self {
             runner: Arc::clone(&self.runner),
+            cache: Arc::clone(&self.cache),
             timeout: self.timeout,
         }
     }
@@ -221,6 +296,7 @@ impl Default for GhClient {
     fn default() -> Self {
         Self {
             runner: Arc::new(SystemCommandRunner::default()),
+            cache: Arc::new(CommandCache::default()),
             timeout: DEFAULT_COMMAND_TIMEOUT,
         }
     }
@@ -229,10 +305,26 @@ impl Default for GhClient {
 impl GhClient {
     #[cfg(test)]
     pub fn with_runner(runner: Arc<dyn CommandRunner>, timeout: Duration) -> Self {
-        Self { runner, timeout }
+        Self {
+            runner,
+            cache: Arc::new(CommandCache::default()),
+            timeout,
+        }
     }
 
     pub async fn run_command(&self, command: GhCommand) -> GhResult<CommandResult> {
+        if let Some((key, ttl)) = cache_identity(&command) {
+            if let Some(cached) = self.cache.get(&key) {
+                println!("[gh] class={} cache=hit", command.class.as_str(),);
+                return Ok(cached);
+            }
+
+            let runner = Arc::clone(&self.runner);
+            let computed = smol::unblock(move || runner.run(command)).await?;
+            self.cache.insert(key, ttl, computed.clone());
+            return Ok(computed);
+        }
+
         let runner = Arc::clone(&self.runner);
         smol::unblock(move || runner.run(command)).await
     }
@@ -355,6 +447,73 @@ impl GhClient {
         })
     }
 
+    pub async fn search_pull_requests(
+        &self,
+        query: &PullRequestSearchQuery,
+    ) -> GhResult<Vec<PullRequestSearchItem>> {
+        let limit = query.limit.clamp(1, MAX_SEARCH_LIMIT);
+
+        let mut args = vec![
+            "search".to_string(),
+            "prs".to_string(),
+            "--limit".to_string(),
+            limit.to_string(),
+            "--json".to_string(),
+            "number,title,state,isDraft,author,createdAt,updatedAt,url,repository,commentsCount"
+                .to_string(),
+            "--sort".to_string(),
+            query.sort.as_query_value().to_string(),
+            "--order".to_string(),
+            query.order.as_query_value().to_string(),
+        ];
+
+        args.push("--owner".to_string());
+        args.push(query.org.clone().unwrap_or_else(|| "@me".to_string()));
+
+        if let Some(repo) = &query.repo {
+            args.push("--repo".to_string());
+            args.push(repo.clone());
+        }
+
+        if query.status != PullRequestStatus::All {
+            args.push("--state".to_string());
+            match query.status {
+                PullRequestStatus::Open => args.push("open".to_string()),
+                PullRequestStatus::Closed => args.push("closed".to_string()),
+                PullRequestStatus::Merged => args.push("closed".to_string()),
+                PullRequestStatus::All => {}
+            }
+        }
+
+        if let Some(author) = &query.author {
+            args.push("--author".to_string());
+            args.push(author.clone());
+        }
+
+        if let Some(title) = &query.title {
+            args.push("--match".to_string());
+            args.push("title".to_string());
+            args.push(title.clone());
+        }
+
+        if query.status == PullRequestStatus::Merged {
+            args.push("--merged".to_string());
+        }
+
+        let result = self
+            .run_command(GhCommand::new(
+                CommandClass::PullRequestSearch,
+                args,
+                self.timeout,
+            ))
+            .await?;
+
+        parse_pull_request_search(&result.stdout).map_err(|details| GhError::ParseFailure {
+            class: CommandClass::PullRequestSearch,
+            details,
+        })
+    }
+
     pub async fn pull_request_conversation(
         &self,
         repo: &str,
@@ -402,6 +561,8 @@ impl GhClient {
         )
         .await?;
 
+        self.cache.invalidate_pull_request_reads();
+
         Ok(())
     }
 
@@ -436,6 +597,8 @@ impl GhClient {
             .with_stdin(body.into_bytes()),
         )
         .await?;
+
+        self.cache.invalidate_pull_request_reads();
 
         Ok(())
     }
@@ -633,6 +796,39 @@ fn collect_pipe_output(
     Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
+fn cache_identity(command: &GhCommand) -> Option<(CacheKey, Duration)> {
+    let ttl = cache_ttl(command.class)?;
+    let stdin_hash = command.stdin.as_ref().map(|bytes| {
+        let mut hasher = DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        hasher.finish()
+    });
+
+    Some((
+        CacheKey {
+            class: command.class,
+            args: command.args.clone(),
+            stdin_hash,
+        },
+        ttl,
+    ))
+}
+
+fn cache_ttl(class: CommandClass) -> Option<Duration> {
+    match class {
+        CommandClass::PreflightVersion | CommandClass::PreflightAuth => Some(CACHE_TTL_PREFLIGHT),
+        CommandClass::ResolveRepo => Some(CACHE_TTL_REPO_CONTEXT),
+        CommandClass::PullRequestSearch | CommandClass::PullRequestList => {
+            Some(CACHE_TTL_PR_SEARCH)
+        }
+        CommandClass::PullRequestDetail
+        | CommandClass::IssueComments
+        | CommandClass::PullRequestReviews
+        | CommandClass::PullRequestReviewComments => Some(CACHE_TTL_PR_DETAIL),
+        CommandClass::SubmitComment | CommandClass::SubmitReview => None,
+    }
+}
+
 fn validate_repo_identifier(repo: &str) -> GhResult<String> {
     let repo = repo.trim();
     let (owner, name) = repo.split_once('/').ok_or_else(|| GhError::InvalidInput {
@@ -703,6 +899,10 @@ fn normalize_write_body(body: &str) -> GhResult<String> {
 mod tests {
     use super::{
         CommandResult, CommandRunner, DEFAULT_COMMAND_TIMEOUT, GhClient, GhCommand, ReviewEvent,
+        cache_identity, cache_ttl,
+    };
+    use crate::gh::models::{
+        PullRequestOrder, PullRequestSearchQuery, PullRequestSort, PullRequestStatus,
     };
     use crate::gh::{CommandClass, GhError};
     use std::collections::VecDeque;
@@ -967,5 +1167,116 @@ mod tests {
                 matches!(bad_body, Err(GhError::InvalidInput { field, .. }) if field == "body")
             );
         });
+    }
+
+    #[test]
+    fn search_command_uses_query_filters() {
+        smol::block_on(async {
+            let runner = Arc::new(MockRunner::with_responses(vec![ok("[]")]));
+            let client = GhClient::with_runner(
+                Arc::clone(&runner) as Arc<dyn CommandRunner>,
+                DEFAULT_COMMAND_TIMEOUT,
+            );
+            let query = PullRequestSearchQuery {
+                org: Some("westbrookdaniel".to_string()),
+                repo: Some("westbrookdaniel/blogs".to_string()),
+                status: PullRequestStatus::Open,
+                title: Some("security".to_string()),
+                author: Some("alice".to_string()),
+                sort: PullRequestSort::Updated,
+                order: PullRequestOrder::Desc,
+                limit: 100,
+            };
+
+            let result = client.search_pull_requests(&query).await;
+            assert!(result.is_ok());
+
+            let command = runner
+                .seen_commands()
+                .into_iter()
+                .next()
+                .expect("one command");
+            assert_eq!(command.class, CommandClass::PullRequestSearch);
+            assert!(command.args.contains(&"--owner".to_string()));
+            assert!(command.args.contains(&"westbrookdaniel".to_string()));
+            assert!(command.args.contains(&"--repo".to_string()));
+            assert!(command.args.contains(&"westbrookdaniel/blogs".to_string()));
+            assert!(command.args.contains(&"--state".to_string()));
+            assert!(command.args.contains(&"open".to_string()));
+            assert!(command.args.contains(&"--author".to_string()));
+            assert!(command.args.contains(&"alice".to_string()));
+            assert!(command.args.contains(&"--match".to_string()));
+            assert!(command.args.contains(&"title".to_string()));
+            assert!(command.args.contains(&"security".to_string()));
+        });
+    }
+
+    #[test]
+    fn merged_filter_adds_merged_flag() {
+        smol::block_on(async {
+            let runner = Arc::new(MockRunner::with_responses(vec![ok("[]")]));
+            let client = GhClient::with_runner(
+                Arc::clone(&runner) as Arc<dyn CommandRunner>,
+                DEFAULT_COMMAND_TIMEOUT,
+            );
+            let query = PullRequestSearchQuery {
+                status: PullRequestStatus::Merged,
+                ..PullRequestSearchQuery::default()
+            };
+
+            let _ = client.search_pull_requests(&query).await;
+            let command = runner
+                .seen_commands()
+                .into_iter()
+                .next()
+                .expect("one command");
+            assert!(command.args.contains(&"@me".to_string()));
+            assert!(command.args.contains(&"--merged".to_string()));
+            assert!(command.args.contains(&"closed".to_string()));
+        });
+    }
+
+    #[test]
+    fn submit_comment_invalidates_read_cache() {
+        smol::block_on(async {
+            let runner = Arc::new(MockRunner::with_responses(vec![ok("[]"), ok(""), ok("[]")]));
+            let client = GhClient::with_runner(
+                Arc::clone(&runner) as Arc<dyn CommandRunner>,
+                DEFAULT_COMMAND_TIMEOUT,
+            );
+
+            let query = PullRequestSearchQuery::default();
+            let _ = client.search_pull_requests(&query).await;
+            let _ = client.submit_comment("acme/widgets", 10, "hello").await;
+            let _ = client.search_pull_requests(&query).await;
+
+            let classes = runner
+                .seen_commands()
+                .into_iter()
+                .map(|command| command.class)
+                .collect::<Vec<CommandClass>>();
+            assert_eq!(
+                classes,
+                vec![
+                    CommandClass::PullRequestSearch,
+                    CommandClass::SubmitComment,
+                    CommandClass::PullRequestSearch,
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn cache_identity_and_ttl_for_search_commands() {
+        let command = GhCommand::new(
+            CommandClass::PullRequestSearch,
+            vec!["search".to_string(), "prs".to_string()],
+            Duration::from_secs(1),
+        );
+
+        let (key, ttl) = cache_identity(&command).expect("search should be cacheable");
+        assert_eq!(key.class, CommandClass::PullRequestSearch);
+        assert!(ttl > Duration::from_secs(0));
+        assert!(cache_ttl(CommandClass::SubmitComment).is_none());
     }
 }

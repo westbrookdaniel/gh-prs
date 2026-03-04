@@ -9,7 +9,7 @@
     <p class="meta">repository: <a href="{{ repo_url }}">{{ repo_name }}</a></p>
     <h1 class="page-title">PR #{{ header.number }} · {{ header.title }}</h1>
     <p class="meta">
-      state: <strong>{{ header.state_label }}</strong> · {{ header.draft_label }} · review: <strong>{{ header.review_decision }}</strong>
+      state: <strong>{{ header.state_label }}</strong> · {{ header.draft_label }} · review: <strong>{% if header.review_decision.is_empty() %}NONE{% else %}{{ header.review_decision }}{% endif %}</strong>
     </p>
     <p class="meta">
       author: <strong>{{ header.author }}</strong> · created: {{ header.created_at }} · updated: {{ header.updated_at }}

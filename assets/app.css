@@ -204,6 +204,35 @@ code {
   gap: 0.62rem;
 }
 
+.filter-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem 0.7rem;
+  align-items: end;
+}
+
+.filter-form input,
+.filter-form select {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #cfd8d2;
+  padding: 0.56rem 0.62rem;
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.subtle-note {
+  margin-top: 0.75rem;
+  font-size: 0.88rem;
+}
+
 label {
   font-weight: 600;
   font-size: 0.92rem;
@@ -273,6 +302,10 @@ button:hover {
 
 @media (max-width: 900px) {
   .grid.two-up {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-form {
     grid-template-columns: 1fr;
   }
 }

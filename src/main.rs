@@ -41,7 +41,7 @@ fn main() -> io::Result<()> {
 
         let state = Arc::new(AppState {
             gh: GhClient::default(),
-            repo: startup.repo,
+            startup_repo: startup.repo,
             diagnostics: startup.diagnostics,
             startup_error: startup.startup_error,
             startup_elapsed: startup.startup_elapsed,
@@ -84,21 +84,11 @@ async fn run_startup_checks(explicit_repo: Option<&str>) -> StartupResult {
         }
     };
 
-    let repo = match gh.resolve_repo(explicit_repo).await {
-        Ok(repo) => repo,
-        Err(error) => {
-            return StartupResult {
-                diagnostics: Some(diagnostics),
-                repo: None,
-                startup_error: Some(error),
-                startup_elapsed: started.elapsed(),
-            };
-        }
-    };
+    let repo = gh.resolve_repo(explicit_repo).await.ok();
 
     StartupResult {
         diagnostics: Some(diagnostics),
-        repo: Some(repo),
+        repo,
         startup_error: None,
         startup_elapsed: started.elapsed(),
     }

@@ -2,6 +2,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
+pub const DEFAULT_SEARCH_LIMIT: usize = 100;
+pub const MAX_SEARCH_LIMIT: usize = 100;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoContext {
     pub name_with_owner: String,
@@ -29,6 +32,125 @@ pub struct PullRequestListItem {
     pub review_decision: Option<String>,
     pub requested_reviewers: Vec<String>,
     pub comment_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequestSearchItem {
+    pub repository_name_with_owner: String,
+    pub number: u64,
+    pub title: String,
+    pub state: String,
+    pub is_draft: bool,
+    pub author: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub url: String,
+    pub comment_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PullRequestStatus {
+    All,
+    Open,
+    Closed,
+    Merged,
+}
+
+impl PullRequestStatus {
+    pub fn as_query_value(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Open => "open",
+            Self::Closed => "closed",
+            Self::Merged => "merged",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "all" => Some(Self::All),
+            "open" => Some(Self::Open),
+            "closed" => Some(Self::Closed),
+            "merged" => Some(Self::Merged),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PullRequestSort {
+    Updated,
+    Created,
+    Comments,
+}
+
+impl PullRequestSort {
+    pub fn as_query_value(self) -> &'static str {
+        match self {
+            Self::Updated => "updated",
+            Self::Created => "created",
+            Self::Comments => "comments",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "updated" => Some(Self::Updated),
+            "created" => Some(Self::Created),
+            "comments" => Some(Self::Comments),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PullRequestOrder {
+    Asc,
+    Desc,
+}
+
+impl PullRequestOrder {
+    pub fn as_query_value(self) -> &'static str {
+        match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "asc" => Some(Self::Asc),
+            "desc" => Some(Self::Desc),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequestSearchQuery {
+    pub org: Option<String>,
+    pub repo: Option<String>,
+    pub status: PullRequestStatus,
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub sort: PullRequestSort,
+    pub order: PullRequestOrder,
+    pub limit: usize,
+}
+
+impl Default for PullRequestSearchQuery {
+    fn default() -> Self {
+        Self {
+            org: None,
+            repo: None,
+            status: PullRequestStatus::All,
+            title: None,
+            author: None,
+            sort: PullRequestSort::Updated,
+            order: PullRequestOrder::Desc,
+            limit: DEFAULT_SEARCH_LIMIT,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,6 +281,31 @@ struct PullRequestListItemRaw {
     review_requests: Option<Value>,
     #[serde(default)]
     comments: Option<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchRepositoryRaw {
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: Option<String>,
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PullRequestSearchItemRaw {
+    number: u64,
+    title: String,
+    state: String,
+    #[serde(rename = "isDraft")]
+    is_draft: bool,
+    author: Option<UserRaw>,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    #[serde(rename = "updatedAt")]
+    updated_at: String,
+    url: String,
+    #[serde(rename = "commentsCount")]
+    comments_count: Option<usize>,
+    repository: Option<SearchRepositoryRaw>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -332,6 +479,34 @@ pub fn parse_pull_request_list(json: &str) -> Result<Vec<PullRequestListItem>, S
         });
     }
     Ok(items)
+}
+
+pub fn parse_pull_request_search(json: &str) -> Result<Vec<PullRequestSearchItem>, String> {
+    let raw_items: Vec<PullRequestSearchItemRaw> =
+        serde_json::from_str(json).map_err(|err| err.to_string())?;
+
+    Ok(raw_items
+        .into_iter()
+        .map(|raw| {
+            let repository_name_with_owner = raw
+                .repository
+                .and_then(|repo| repo.name_with_owner.or(repo.name))
+                .unwrap_or_else(|| "unknown/unknown".to_string());
+
+            PullRequestSearchItem {
+                repository_name_with_owner,
+                number: raw.number,
+                title: raw.title,
+                state: raw.state.to_ascii_uppercase(),
+                is_draft: raw.is_draft,
+                author: extract_user(raw.author),
+                created_at: raw.created_at,
+                updated_at: raw.updated_at,
+                url: raw.url,
+                comment_count: raw.comments_count.unwrap_or(0),
+            }
+        })
+        .collect())
 }
 
 pub fn parse_pull_request_detail(json: &str) -> Result<PullRequestDetail, String> {
@@ -597,7 +772,7 @@ mod tests {
     use super::{
         parse_issue_comments, parse_preflight_auth, parse_pull_request_detail,
         parse_pull_request_list, parse_pull_request_review_comments, parse_pull_request_reviews,
-        parse_repo_context,
+        parse_pull_request_search, parse_repo_context,
     };
 
     #[test]
@@ -672,6 +847,31 @@ mod tests {
         assert_eq!(item.number, 12);
         assert_eq!(item.requested_reviewers, vec!["backend-team", "bob"]);
         assert_eq!(item.comment_count, 3);
+    }
+
+    #[test]
+    fn parses_pull_request_search_rows() {
+        let json = r#"[
+          {
+            "number": 18,
+            "title": "Global search",
+            "state": "open",
+            "isDraft": true,
+            "author": {"login": "alice"},
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-02T00:00:00Z",
+            "url": "https://example/pr/18",
+            "commentsCount": 9,
+            "repository": {"nameWithOwner": "acme/widgets"}
+          }
+        ]"#;
+
+        let items = parse_pull_request_search(json).expect("search list should parse");
+        assert_eq!(items.len(), 1);
+        let item = &items[0];
+        assert_eq!(item.repository_name_with_owner, "acme/widgets");
+        assert_eq!(item.state, "OPEN");
+        assert_eq!(item.comment_count, 9);
     }
 
     #[test]

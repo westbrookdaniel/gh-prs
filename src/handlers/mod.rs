@@ -8,7 +8,9 @@ use crate::gh::client::{GhClient, ReviewEvent};
 use crate::gh::models::{PreflightDiagnostics, RepoContext};
 use crate::gh::{GhError, GhResult};
 use crate::http::{App, Request, Response};
-use crate::views::{ErrorTemplate, FlashMessageView, PrDetailTemplate, PrListTemplate};
+use crate::views::{
+    ErrorTemplate, FlashMessageView, PrDetailTemplate, PrListTemplate, parse_search_query,
+};
 
 const FLASH_MAX_LEN: usize = 220;
 const HEALTH_OK_STATUS: &str = "ok";
@@ -17,21 +19,19 @@ const HEALTH_DEGRADED_STATUS: &str = "degraded";
 #[derive(Clone)]
 pub struct AppState {
     pub gh: GhClient,
-    pub repo: Option<RepoContext>,
+    pub startup_repo: Option<RepoContext>,
     pub diagnostics: Option<PreflightDiagnostics>,
     pub startup_error: Option<GhError>,
     pub startup_elapsed: Duration,
 }
 
 impl AppState {
-    pub fn ready_repo(&self) -> GhResult<&RepoContext> {
+    pub fn startup_ready(&self) -> GhResult<()> {
         if let Some(error) = &self.startup_error {
             return Err(error.clone());
         }
 
-        self.repo.as_ref().ok_or_else(|| {
-            GhError::Internal("missing repository context after startup".to_string())
-        })
+        Ok(())
     }
 }
 
@@ -39,9 +39,12 @@ pub fn register(app: App, state: Arc<AppState>) -> App {
     let root_state = Arc::clone(&state);
     let health_state = Arc::clone(&state);
     let list_state = Arc::clone(&state);
-    let detail_state = Arc::clone(&state);
-    let comment_state = Arc::clone(&state);
-    let review_state = Arc::clone(&state);
+    let detail_repo_state = Arc::clone(&state);
+    let detail_simple_state = Arc::clone(&state);
+    let comment_repo_state = Arc::clone(&state);
+    let comment_simple_state = Arc::clone(&state);
+    let review_repo_state = Arc::clone(&state);
+    let review_simple_state = Arc::clone(&state);
 
     app.get("/", move |request| {
         let state = Arc::clone(&root_state);
@@ -55,16 +58,28 @@ pub fn register(app: App, state: Arc<AppState>) -> App {
         let state = Arc::clone(&list_state);
         async move { list_pull_requests(request, state).await }
     })
-    .get("/prs/:number", move |request| {
-        let state = Arc::clone(&detail_state);
+    .get("/repos/:owner/:repo/prs/:number", move |request| {
+        let state = Arc::clone(&detail_repo_state);
         async move { pull_request_detail(request, state).await }
     })
-    .post("/prs/:number/comment", move |request| {
-        let state = Arc::clone(&comment_state);
+    .get("/prs/:number", move |request| {
+        let state = Arc::clone(&detail_simple_state);
+        async move { pull_request_detail(request, state).await }
+    })
+    .post("/repos/:owner/:repo/prs/:number/comment", move |request| {
+        let state = Arc::clone(&comment_repo_state);
         async move { submit_comment(request, state).await }
     })
+    .post("/prs/:number/comment", move |request| {
+        let state = Arc::clone(&comment_simple_state);
+        async move { submit_comment(request, state).await }
+    })
+    .post("/repos/:owner/:repo/prs/:number/review", move |request| {
+        let state = Arc::clone(&review_repo_state);
+        async move { submit_review(request, state).await }
+    })
     .post("/prs/:number/review", move |request| {
-        let state = Arc::clone(&review_state);
+        let state = Arc::clone(&review_simple_state);
         async move { submit_review(request, state).await }
     })
 }
@@ -85,7 +100,7 @@ pub async fn health(_request: Request, state: Arc<AppState>) -> Response {
     }
 
     let repo_name = state
-        .repo
+        .startup_repo
         .as_ref()
         .map(|repo| repo.name_with_owner.as_str());
 
@@ -124,27 +139,44 @@ pub async fn health(_request: Request, state: Arc<AppState>) -> Response {
 pub async fn list_pull_requests(request: Request, state: Arc<AppState>) -> Response {
     let flash = flash_from_query(&request);
 
-    let repo = match state.ready_repo() {
-        Ok(repo) => repo,
-        Err(err) => return render_gh_error(err),
-    };
+    if let Err(err) = state.startup_ready() {
+        return render_gh_error(err);
+    }
 
-    match state.gh.list_pull_requests(&repo.name_with_owner).await {
+    let query = parse_search_query(&request);
+
+    match state.gh.search_pull_requests(&query).await {
         Ok(items) => {
-            let template =
-                PrListTemplate::from_pull_requests(repo, state.diagnostics.as_ref(), items, flash);
+            let template = PrListTemplate::from_search_results(
+                state.startup_repo.as_ref(),
+                state.diagnostics.as_ref(),
+                &query,
+                items,
+                flash,
+            );
             render_template(200, "OK", &template)
         }
-        Err(err) => render_gh_error(err),
+        Err(err) => return render_gh_error(err),
     }
 }
 
 pub async fn pull_request_detail(request: Request, state: Arc<AppState>) -> Response {
     let flash = flash_from_query(&request);
 
-    let repo = match state.ready_repo() {
+    if let Err(err) = state.startup_ready() {
+        return render_gh_error(err);
+    }
+
+    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
         Ok(repo) => repo,
         Err(err) => return render_gh_error(err),
+    };
+
+    let repo_context = RepoContext {
+        name_with_owner: repo_name.clone(),
+        url: format!("https://github.com/{repo_name}"),
+        viewer_permission: "UNKNOWN".to_string(),
+        default_branch: "main".to_string(),
     };
 
     let number = match parse_pr_number(&request) {
@@ -152,13 +184,9 @@ pub async fn pull_request_detail(request: Request, state: Arc<AppState>) -> Resp
         Err(err) => return render_gh_error(err),
     };
 
-    match state
-        .gh
-        .pull_request_conversation(&repo.name_with_owner, number)
-        .await
-    {
+    match state.gh.pull_request_conversation(&repo_name, number).await {
         Ok(conversation) => {
-            let template = PrDetailTemplate::from_conversation(repo, conversation, flash);
+            let template = PrDetailTemplate::from_conversation(&repo_context, conversation, flash);
             render_template(200, "OK", &template)
         }
         Err(err) => render_gh_error(err),
@@ -166,7 +194,11 @@ pub async fn pull_request_detail(request: Request, state: Arc<AppState>) -> Resp
 }
 
 pub async fn submit_comment(request: Request, state: Arc<AppState>) -> Response {
-    let repo = match state.ready_repo() {
+    if let Err(err) = state.startup_ready() {
+        return redirect_with_flash("/prs", FlashMessageView::error(err.message()));
+    }
+
+    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
         Ok(repo) => repo,
         Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
     };
@@ -180,6 +212,7 @@ pub async fn submit_comment(request: Request, state: Arc<AppState>) -> Response 
         Ok(form) => form,
         Err(err) => {
             return redirect_to_pr(
+                &repo_name,
                 number,
                 FlashMessageView::error(format!("Unable to parse comment form: {err}")),
             );
@@ -188,17 +221,25 @@ pub async fn submit_comment(request: Request, state: Arc<AppState>) -> Response 
 
     let result = state
         .gh
-        .submit_comment(&repo.name_with_owner, number, &form.body)
+        .submit_comment(&repo_name, number, &form.body)
         .await;
 
     match result {
-        Ok(()) => redirect_to_pr(number, FlashMessageView::success("Comment posted.")),
-        Err(err) => redirect_to_pr(number, FlashMessageView::error(err.message())),
+        Ok(()) => redirect_to_pr(
+            &repo_name,
+            number,
+            FlashMessageView::success("Comment posted."),
+        ),
+        Err(err) => redirect_to_pr(&repo_name, number, FlashMessageView::error(err.message())),
     }
 }
 
 pub async fn submit_review(request: Request, state: Arc<AppState>) -> Response {
-    let repo = match state.ready_repo() {
+    if let Err(err) = state.startup_ready() {
+        return redirect_with_flash("/prs", FlashMessageView::error(err.message()));
+    }
+
+    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
         Ok(repo) => repo,
         Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
     };
@@ -212,6 +253,7 @@ pub async fn submit_review(request: Request, state: Arc<AppState>) -> Response {
         Ok(form) => form,
         Err(err) => {
             return redirect_to_pr(
+                &repo_name,
                 number,
                 FlashMessageView::error(format!("Unable to parse review form: {err}")),
             );
@@ -220,12 +262,14 @@ pub async fn submit_review(request: Request, state: Arc<AppState>) -> Response {
 
     let event = match ReviewEvent::parse(&form.event) {
         Ok(event) => event,
-        Err(err) => return redirect_to_pr(number, FlashMessageView::error(err.message())),
+        Err(err) => {
+            return redirect_to_pr(&repo_name, number, FlashMessageView::error(err.message()));
+        }
     };
 
     let result = state
         .gh
-        .submit_review(&repo.name_with_owner, number, event, &form.body)
+        .submit_review(&repo_name, number, event, &form.body)
         .await;
 
     match result {
@@ -235,10 +279,32 @@ pub async fn submit_review(request: Request, state: Arc<AppState>) -> Response {
                 ReviewEvent::Comment => "Review submitted: comment.",
                 ReviewEvent::RequestChanges => "Review submitted: changes requested.",
             };
-            redirect_to_pr(number, FlashMessageView::success(event_text))
+            redirect_to_pr(&repo_name, number, FlashMessageView::success(event_text))
         }
-        Err(err) => redirect_to_pr(number, FlashMessageView::error(err.message())),
+        Err(err) => redirect_to_pr(&repo_name, number, FlashMessageView::error(err.message())),
     }
+}
+
+fn repo_from_request(request: &Request, fallback_repo: Option<&RepoContext>) -> GhResult<String> {
+    if let Some(repo) = request.query_param("repo") {
+        return validate_repo_identifier(repo);
+    }
+
+    let owner = request.param("owner");
+    let name = request.param("repo");
+
+    if let (Some(owner), Some(name)) = (owner, name) {
+        return validate_repo_identifier(&format!("{owner}/{name}"));
+    }
+
+    if let Some(repo) = fallback_repo {
+        return validate_repo_identifier(&repo.name_with_owner);
+    }
+
+    Err(GhError::InvalidInput {
+        field: "repo".to_string(),
+        details: "missing repo context; provide ?repo=OWNER/REPO".to_string(),
+    })
 }
 
 fn parse_pr_number(request: &Request) -> GhResult<u64> {
@@ -295,8 +361,48 @@ fn parse_form<T: serde::de::DeserializeOwned>(request: &Request) -> Result<T, St
     serde_urlencoded::from_bytes::<T>(&request.body).map_err(|err| err.to_string())
 }
 
-fn redirect_to_pr(number: u64, flash: FlashMessageView) -> Response {
+fn redirect_to_pr(repo: &str, number: u64, flash: FlashMessageView) -> Response {
+    if let Some((owner, name)) = repo.split_once('/') {
+        return redirect_with_flash(&format!("/repos/{owner}/{name}/prs/{number}"), flash);
+    }
     redirect_with_flash(&format!("/prs/{number}"), flash)
+}
+
+fn validate_repo_identifier(repo: &str) -> GhResult<String> {
+    let repo = repo.trim();
+    let (owner, name) = repo.split_once('/').ok_or_else(|| GhError::InvalidInput {
+        field: "repo".to_string(),
+        details: "expected OWNER/REPO".to_string(),
+    })?;
+
+    if owner.is_empty() || name.is_empty() || name.contains('/') {
+        return Err(GhError::InvalidInput {
+            field: "repo".to_string(),
+            details: "expected OWNER/REPO".to_string(),
+        });
+    }
+
+    if !owner
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err(GhError::InvalidInput {
+            field: "repo".to_string(),
+            details: "owner contains invalid characters".to_string(),
+        });
+    }
+
+    if !name
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.')
+    {
+        return Err(GhError::InvalidInput {
+            field: "repo".to_string(),
+            details: "repo contains invalid characters".to_string(),
+        });
+    }
+
+    Ok(format!("{owner}/{name}"))
 }
 
 fn redirect_with_flash(location: &str, flash: FlashMessageView) -> Response {
@@ -439,7 +545,7 @@ mod tests {
         let runner = Arc::new(MockRunner::with_responses(responses));
         Arc::new(AppState {
             gh: GhClient::with_runner(runner, Duration::from_secs(3)),
-            repo: Some(RepoContext {
+            startup_repo: Some(RepoContext {
                 name_with_owner: "acme/widgets".to_string(),
                 url: "https://github.com/acme/widgets".to_string(),
                 viewer_permission: "WRITE".to_string(),
@@ -467,17 +573,16 @@ mod tests {
         smol::block_on(async {
             let state = state_with_responses(vec![ok(r#"[
                 {
+                    "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,
                     "title":"Improve auth",
-                    "state":"OPEN",
+                    "state":"open",
                     "isDraft":false,
                     "author":{"login":"alice"},
                     "createdAt":"2026-01-01T00:00:00Z",
                     "updatedAt":"2026-01-02T00:00:00Z",
                     "url":"https://example/pr/7",
-                    "reviewDecision":"REVIEW_REQUIRED",
-                    "reviewRequests":[],
-                    "comments":{"totalCount":2}
+                    "commentsCount":2
                 }
             ]"#)]);
 
@@ -490,7 +595,97 @@ mod tests {
             assert_eq!(response.status_code(), 200);
             let body = body_text(&response);
             assert!(body.contains("Improve auth"));
-            assert!(body.contains("/prs/7"));
+            assert!(body.contains("/repos/acme/widgets/prs/7"));
+            assert!(body.contains("acme/widgets"));
+        });
+    }
+
+    #[test]
+    fn list_handler_applies_org_and_repo_filters() {
+        smol::block_on(async {
+            let state = state_with_responses(vec![ok("[]")]);
+            let response = list_pull_requests(
+                request(
+                    "GET /prs?org=westbrookdaniel&repo=blogs HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                ),
+                state,
+            )
+            .await;
+
+            assert_eq!(response.status_code(), 200);
+        });
+    }
+
+    #[test]
+    fn list_handler_shows_limit_warning_when_result_count_hits_cap() {
+        smol::block_on(async {
+            let mut rows = String::new();
+            rows.push('[');
+            for idx in 1..=100 {
+                if idx > 1 {
+                    rows.push(',');
+                }
+                rows.push_str(&format!(
+                    "{{\"repository\":{{\"nameWithOwner\":\"acme/widgets\"}},\"number\":{},\"title\":\"PR {}\",\"state\":\"open\",\"isDraft\":false,\"author\":{{\"login\":\"alice\"}},\"createdAt\":\"2026-01-01T00:00:00Z\",\"updatedAt\":\"2026-01-02T00:00:00Z\",\"url\":\"https://example/pr/{}\",\"commentsCount\":0}}",
+                    idx, idx, idx
+                ));
+            }
+            rows.push(']');
+
+            let state = state_with_responses(vec![ok(&rows)]);
+            let response = list_pull_requests(
+                request("GET /prs HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+                state,
+            )
+            .await;
+
+            assert_eq!(response.status_code(), 200);
+            assert!(body_text(&response).contains("Some results may be hidden."));
+        });
+    }
+
+    #[test]
+    fn detail_route_uses_repo_query_fallback_when_params_absent() {
+        smol::block_on(async {
+            let state = state_with_responses(vec![
+                ok(r#"{
+                    "number":7,
+                    "title":"Improve auth",
+                    "body":"Body",
+                    "state":"OPEN",
+                    "isDraft":false,
+                    "author":{"login":"alice"},
+                    "createdAt":"2026-01-01T00:00:00Z",
+                    "updatedAt":"2026-01-02T00:00:00Z",
+                    "url":"https://example/pr/7",
+                    "baseRefName":"main",
+                    "headRefName":"feature",
+                    "mergeStateStatus":"CLEAN",
+                    "mergeable":"MERGEABLE",
+                    "reviewDecision":null,
+                    "reviewRequests":[],
+                    "latestReviews":[],
+                    "statusCheckRollup":null,
+                    "commits":{"totalCount":3},
+                    "files":{"totalCount":5}
+                }"#),
+                ok("[]"),
+                ok("[]"),
+                ok("[]"),
+            ]);
+
+            let response = pull_request_detail(
+                request_with_number(
+                    "GET /prs/7?repo=acme/widgets HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                    "7",
+                ),
+                state,
+            )
+            .await;
+
+            assert_eq!(response.status_code(), 200);
+            let body = body_text(&response);
+            assert!(body.contains("repository: <a href=\"https://github.com/acme/widgets\">"));
         });
     }
 
@@ -525,7 +720,19 @@ mod tests {
             ]);
 
             let response = pull_request_detail(
-                request_with_number("GET /prs/7 HTTP/1.1\r\nHost: localhost\r\n\r\n", "7"),
+                request_with_number(
+                    "GET /repos/acme/widgets/prs/7 HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                    "7",
+                )
+                .with_params(
+                    [
+                        ("owner".to_string(), "acme".to_string()),
+                        ("repo".to_string(), "widgets".to_string()),
+                        ("number".to_string(), "7".to_string()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
                 state,
             )
             .await;
@@ -562,7 +769,19 @@ mod tests {
             let state = state_with_responses(vec![Err(GhError::PullRequestNotFound { number: 7 })]);
 
             let response = pull_request_detail(
-                request_with_number("GET /prs/7 HTTP/1.1\r\nHost: localhost\r\n\r\n", "7"),
+                request_with_number(
+                    "GET /repos/acme/widgets/prs/7 HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                    "7",
+                )
+                .with_params(
+                    [
+                        ("owner".to_string(), "acme".to_string()),
+                        ("repo".to_string(), "widgets".to_string()),
+                        ("number".to_string(), "7".to_string()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
                 state,
             )
             .await;
@@ -576,7 +795,7 @@ mod tests {
     fn list_handler_renders_error_page_when_command_fails() {
         smol::block_on(async {
             let state = state_with_responses(vec![Err(GhError::CommandFailed {
-                class: CommandClass::PullRequestList,
+                class: CommandClass::PullRequestSearch,
                 code: Some(1),
                 stderr: "HTTP 502 from api".to_string(),
             })]);
@@ -596,12 +815,24 @@ mod tests {
     fn comment_post_redirects_with_success_flash() {
         smol::block_on(async {
             let state = state_with_responses(vec![ok("")]);
-            let raw = "POST /prs/7/comment HTTP/1.1\r\nHost: localhost\r\nContent-Length: 15\r\n\r\nbody=hello+team";
-            let response = submit_comment(request_with_number(raw, "7"), state).await;
+            let raw = "POST /repos/acme/widgets/prs/7/comment HTTP/1.1\r\nHost: localhost\r\nContent-Length: 15\r\n\r\nbody=hello+team";
+            let response = submit_comment(
+                request(raw).with_params(
+                    [
+                        ("owner".to_string(), "acme".to_string()),
+                        ("repo".to_string(), "widgets".to_string()),
+                        ("number".to_string(), "7".to_string()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+                state,
+            )
+            .await;
 
             assert_eq!(response.status_code(), 303);
             let location = header(&response, "Location").unwrap_or_default();
-            assert!(location.starts_with("/prs/7?"));
+            assert!(location.starts_with("/repos/acme/widgets/prs/7?"));
             assert!(location.contains("flash=success"));
         });
     }
@@ -615,11 +846,23 @@ mod tests {
             })]);
             let body = "event=approve&body=looks+good";
             let raw = format!(
-                "POST /prs/7/review HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{}",
+                "POST /repos/acme/widgets/prs/7/review HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{}",
                 body.len(),
                 body
             );
-            let response = submit_review(request_with_number(&raw, "7"), state).await;
+            let response = submit_review(
+                request(&raw).with_params(
+                    [
+                        ("owner".to_string(), "acme".to_string()),
+                        ("repo".to_string(), "widgets".to_string()),
+                        ("number".to_string(), "7".to_string()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+                state,
+            )
+            .await;
 
             assert_eq!(response.status_code(), 303);
             let location = header(&response, "Location").unwrap_or_default();
@@ -633,12 +876,24 @@ mod tests {
             let state = state_with_responses(vec![]);
             let body = "event=invalid&body=needs+work";
             let raw = format!(
-                "POST /prs/7/review HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{}",
+                "POST /repos/acme/widgets/prs/7/review HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{}",
                 body.len(),
                 body
             );
 
-            let response = submit_review(request_with_number(&raw, "7"), state).await;
+            let response = submit_review(
+                request(&raw).with_params(
+                    [
+                        ("owner".to_string(), "acme".to_string()),
+                        ("repo".to_string(), "widgets".to_string()),
+                        ("number".to_string(), "7".to_string()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+                state,
+            )
+            .await;
             assert_eq!(response.status_code(), 303);
             let location = header(&response, "Location").unwrap_or_default();
             assert!(location.contains("flash=error"));
@@ -650,9 +905,20 @@ mod tests {
     fn comment_post_rejects_empty_body() {
         smol::block_on(async {
             let state = state_with_responses(vec![]);
-            let raw =
-                "POST /prs/7/comment HTTP/1.1\r\nHost: localhost\r\nContent-Length: 7\r\n\r\nbody=++";
-            let response = submit_comment(request_with_number(raw, "7"), state).await;
+            let raw = "POST /repos/acme/widgets/prs/7/comment HTTP/1.1\r\nHost: localhost\r\nContent-Length: 7\r\n\r\nbody=++";
+            let response = submit_comment(
+                request(raw).with_params(
+                    [
+                        ("owner".to_string(), "acme".to_string()),
+                        ("repo".to_string(), "widgets".to_string()),
+                        ("number".to_string(), "7".to_string()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+                state,
+            )
+            .await;
             assert_eq!(response.status_code(), 303);
             let location = header(&response, "Location").unwrap_or_default();
             assert!(location.contains("flash=error"));
@@ -675,7 +941,7 @@ mod tests {
         smol::block_on(async {
             let state = Arc::new(AppState {
                 gh: GhClient::with_runner(Arc::new(MockRunner::default()), Duration::from_secs(3)),
-                repo: None,
+                startup_repo: None,
                 diagnostics: None,
                 startup_error: Some(GhError::NotAuthenticated),
                 startup_elapsed: Duration::from_millis(15),

@@ -5,10 +5,10 @@
 {% block content %}
 <main class="page">
   <section class="panel page-header">
-    <p class="eyebrow">Repository</p>
-    <h1 class="page-title"><a href="{{ repo_url }}">{{ repo_name }}</a></h1>
+    <p class="eyebrow">Search Scope</p>
+    <h1 class="page-title">Pull Requests</h1>
     <p class="meta">
-      default branch: <strong>{{ default_branch }}</strong> · gh: <strong>{{ gh_version }}</strong> · hosts: <strong>{{ authenticated_hosts }}</strong>
+      {{ source_label }} · gh: <strong>{{ gh_version }}</strong> · hosts: <strong>{{ authenticated_hosts }}</strong>
     </p>
   </section>
 
@@ -18,8 +18,55 @@
 
   <section class="panel">
     <header class="section-head">
+      <h2>Filters</h2>
+      <p>Cross-repo search on your accessible repos.</p>
+    </header>
+
+    <form method="get" action="/prs" class="filter-form">
+      <label for="filter-org">Org</label>
+      <input id="filter-org" type="text" name="org" value="{{ filters.org }}" placeholder="owner" />
+
+      <label for="filter-repo">Repo</label>
+      <input id="filter-repo" type="text" name="repo" value="{{ filters.repo }}" placeholder="owner/repo" />
+
+      <label for="filter-status">Status</label>
+      <select id="filter-status" name="status">
+        <option value="all" {% if filters.status == "all" %}selected{% endif %}>All</option>
+        <option value="open" {% if filters.status == "open" %}selected{% endif %}>Open</option>
+        <option value="closed" {% if filters.status == "closed" %}selected{% endif %}>Closed</option>
+        <option value="merged" {% if filters.status == "merged" %}selected{% endif %}>Merged</option>
+      </select>
+
+      <label for="filter-title">Title</label>
+      <input id="filter-title" type="text" name="title" value="{{ filters.title }}" placeholder="keyword" />
+
+      <label for="filter-author">Author</label>
+      <input id="filter-author" type="text" name="author" value="{{ filters.author }}" placeholder="login" />
+
+      <label for="filter-sort">Sort</label>
+      <select id="filter-sort" name="sort">
+        <option value="updated" {% if filters.sort == "updated" %}selected{% endif %}>Updated</option>
+        <option value="created" {% if filters.sort == "created" %}selected{% endif %}>Created</option>
+        <option value="comments" {% if filters.sort == "comments" %}selected{% endif %}>Comments</option>
+      </select>
+
+      <label for="filter-order">Order</label>
+      <select id="filter-order" name="order">
+        <option value="desc" {% if filters.order == "desc" %}selected{% endif %}>Desc</option>
+        <option value="asc" {% if filters.order == "asc" %}selected{% endif %}>Asc</option>
+      </select>
+
+      <div class="filter-actions">
+        <button type="submit">Apply</button>
+        <a href="/prs">Reset</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <header class="section-head">
       <h2>Pull Requests</h2>
-      <p>Showing up to 100 pull requests across all states.</p>
+      <p>Showing up to 100 pull requests.</p>
     </header>
     {% if rows.is_empty() %}
     <p class="empty">No pull requests found.</p>
@@ -28,6 +75,7 @@
       <table class="pr-table">
         <thead>
           <tr>
+            <th>Repository</th>
             <th>#</th>
             <th>Title</th>
             <th>State</th>
@@ -40,6 +88,7 @@
         <tbody>
           {% for row in rows %}
           <tr>
+            <td>{{ row.repo_name_with_owner }}</td>
             <td><a href="{{ row.detail_path }}">#{{ row.number }}</a></td>
             <td><a href="{{ row.detail_path }}">{{ row.title }}</a></td>
             <td><span class="badge">{{ row.state_label }}</span></td>
@@ -52,6 +101,10 @@
         </tbody>
       </table>
     </div>
+
+    {% if has_results_limit_warning %}
+    <p class="meta subtle-note">Some results may be hidden.</p>
+    {% endif %}
     {% endif %}
   </section>
 </main>
