@@ -1,0 +1,58 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<main class="page">
+  <section class="panel page-header">
+    <p class="eyebrow">Repository</p>
+    <h1 class="page-title"><a href="{{ repo_url }}">{{ repo_name }}</a></h1>
+    <p class="meta">
+      default branch: <strong>{{ default_branch }}</strong> · gh: <strong>{{ gh_version }}</strong> · hosts: <strong>{{ authenticated_hosts }}</strong>
+    </p>
+  </section>
+
+  {% if let Some(flash) = flash %}
+  <section class="panel flash flash-{{ flash.kind }}">{{ flash.message }}</section>
+  {% endif %}
+
+  <section class="panel">
+    <header class="section-head">
+      <h2>Pull Requests</h2>
+      <p>Showing up to 100 pull requests across all states.</p>
+    </header>
+    {% if rows.is_empty() %}
+    <p class="empty">No pull requests found.</p>
+    {% else %}
+    <div class="table-wrap">
+      <table class="pr-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Title</th>
+            <th>State</th>
+            <th>Author</th>
+            <th>Review</th>
+            <th>Comments</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td><a href="{{ row.detail_path }}">#{{ row.number }}</a></td>
+            <td><a href="{{ row.detail_path }}">{{ row.title }}</a></td>
+            <td><span class="badge">{{ row.state_label }}</span></td>
+            <td>{{ row.author }}</td>
+            <td>{{ row.review_decision }}</td>
+            <td>{{ row.comment_count }}</td>
+            <td>{{ row.updated_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}
