@@ -6,6 +6,7 @@ pub mod format;
 pub mod forms;
 pub mod health;
 pub mod list;
+pub mod not_found;
 pub mod routes;
 pub mod state;
 pub mod write;
@@ -20,15 +21,21 @@ mod tests {
     use super::health::health;
     use super::list::list_pull_requests;
     use super::routes::root_redirect;
-    use super::state::AppState;
+    use super::state::{AppState, set_app_state};
     use super::write::submit_comment;
     use crate::gh::GhError;
     use crate::gh::client::{CommandResult, CommandRunner, GhClient};
     use crate::gh::models::RepoContext;
     use crate::http::{Request, Response};
     use std::collections::VecDeque;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, OnceLock};
     use std::time::Duration;
+
+    static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn test_lock() -> &'static Mutex<()> {
+        TEST_LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[derive(Default)]
     struct MockRunner {
@@ -99,9 +106,9 @@ mod tests {
         None
     }
 
-    fn state_with_responses(responses: Vec<Result<CommandResult, GhError>>) -> Arc<AppState> {
+    fn state_with_responses(responses: Vec<Result<CommandResult, GhError>>) -> AppState {
         let runner = Arc::new(MockRunner::with_responses(responses));
-        Arc::new(AppState {
+        AppState {
             gh: GhClient::with_runner(runner, Duration::from_secs(3)),
             startup_repo: Some(RepoContext {
                 name_with_owner: "acme/widgets".to_string(),
@@ -112,15 +119,15 @@ mod tests {
             diagnostics: None,
             startup_error: None,
             startup_elapsed: Duration::from_millis(7),
-        })
+        }
     }
 
     #[test]
     fn root_redirects_to_pr_list() {
         smol::block_on(async {
-            let state = state_with_responses(vec![]);
+            let _guard = test_lock().lock().expect("test lock");
             let response =
-                root_redirect(request("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"), state).await;
+                root_redirect(request("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")).await;
             assert_eq!(response.status_code(), 303);
             assert_eq!(header(&response, "Location").as_deref(), Some("/prs"));
         });
@@ -129,7 +136,8 @@ mod tests {
     #[test]
     fn list_handler_renders_rows() {
         smol::block_on(async {
-            let state = state_with_responses(vec![ok(r#"[
+            let _guard = test_lock().lock().expect("test lock");
+            set_app_state(state_with_responses(vec![ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,
@@ -142,13 +150,10 @@ mod tests {
                     "url":"https://example/pr/7",
                     "commentsCount":2
                 }
-            ]"#)]);
+            ]"#)]));
 
-            let response = list_pull_requests(
-                request("GET /prs HTTP/1.1\r\nHost: localhost\r\n\r\n"),
-                state,
-            )
-            .await;
+            let response =
+                list_pull_requests(request("GET /prs HTTP/1.1\r\nHost: localhost\r\n\r\n")).await;
 
             assert_eq!(response.status_code(), 200);
             let body = body_text(&response);
@@ -161,7 +166,8 @@ mod tests {
     #[test]
     fn detail_handler_renders_sections() {
         smol::block_on(async {
-            let state = state_with_responses(vec![
+            let _guard = test_lock().lock().expect("test lock");
+            set_app_state(state_with_responses(vec![
                 ok(r#"{
                     "number":7,
                     "title":"Improve auth",
@@ -186,7 +192,7 @@ mod tests {
                 ok("[]"),
                 ok("[]"),
                 ok("[]"),
-            ]);
+            ]));
 
             let response = pull_request_detail(
                 request_with_number(
@@ -202,7 +208,6 @@ mod tests {
                     .into_iter()
                     .collect(),
                 ),
-                state,
             )
             .await;
 
@@ -217,7 +222,8 @@ mod tests {
     #[test]
     fn changes_handler_renders_diff_tab() {
         smol::block_on(async {
-            let state = state_with_responses(vec![
+            let _guard = test_lock().lock().expect("test lock");
+            set_app_state(state_with_responses(vec![
                 ok(r#"{
                     "number":7,
                     "title":"Improve auth",
@@ -253,7 +259,7 @@ mod tests {
                         "blob_url":"https://example/blob"
                     }
                 ]"#),
-            ]);
+            ]));
 
             let response = pull_request_changes(
                 request_with_number(
@@ -269,7 +275,6 @@ mod tests {
                     .into_iter()
                     .collect(),
                 ),
-                state,
             )
             .await;
 
@@ -283,7 +288,8 @@ mod tests {
     #[test]
     fn comment_post_redirects_with_success_flash() {
         smol::block_on(async {
-            let state = state_with_responses(vec![ok("")]);
+            let _guard = test_lock().lock().expect("test lock");
+            set_app_state(state_with_responses(vec![ok("")]));
             let raw = "POST /repos/acme/widgets/prs/7/comment?org=acme HTTP/1.1\r\nHost: localhost\r\nContent-Length: 15\r\n\r\nbody=hello+team";
             let response = submit_comment(
                 request(raw).with_params(
@@ -295,7 +301,6 @@ mod tests {
                     .into_iter()
                     .collect(),
                 ),
-                state,
             )
             .await;
 
@@ -309,7 +314,8 @@ mod tests {
     #[test]
     fn health_reports_degraded_when_startup_failed() {
         smol::block_on(async {
-            let state = Arc::new(AppState {
+            let _guard = test_lock().lock().expect("test lock");
+            set_app_state(AppState {
                 gh: GhClient::with_runner(Arc::new(MockRunner::default()), Duration::from_secs(3)),
                 startup_repo: None,
                 diagnostics: None,
@@ -317,11 +323,7 @@ mod tests {
                 startup_elapsed: Duration::from_millis(15),
             });
 
-            let response = health(
-                request("GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n"),
-                state,
-            )
-            .await;
+            let response = health(request("GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")).await;
 
             assert_eq!(response.status_code(), 503);
             let body = body_text(&response);
@@ -332,7 +334,8 @@ mod tests {
     #[test]
     fn list_links_preserve_query_context() {
         smol::block_on(async {
-            let state = state_with_responses(vec![ok(r#"[
+            let _guard = test_lock().lock().expect("test lock");
+            set_app_state(state_with_responses(vec![ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,
@@ -345,12 +348,11 @@ mod tests {
                     "url":"https://example/pr/7",
                     "commentsCount":2
                 }
-            ]"#)]);
+            ]"#)]));
 
-            let response = list_pull_requests(
-                request("GET /prs?org=acme&status=open HTTP/1.1\r\nHost: localhost\r\n\r\n"),
-                state,
-            )
+            let response = list_pull_requests(request(
+                "GET /prs?org=acme&status=open HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            ))
             .await;
 
             assert_eq!(response.status_code(), 200);

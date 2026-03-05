@@ -2,11 +2,13 @@ use crate::gh::client::ReviewEvent;
 use crate::handlers::context::{parse_pr_number, repo_from_request};
 use crate::handlers::flash::{redirect_to_repo_pr, redirect_with_flash};
 use crate::handlers::forms::{CommentForm, ReviewForm, parse_form};
-use crate::handlers::state::SharedState;
+use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::FlashMessageView;
 
-pub async fn submit_comment(request: Request, state: SharedState) -> Response {
+pub async fn submit_comment(request: Request) -> Response {
+    let state = app_state_snapshot();
+
     if let Err(err) = state.startup_ready() {
         return redirect_with_flash("/prs", FlashMessageView::error(err.message()));
     }
@@ -54,7 +56,9 @@ pub async fn submit_comment(request: Request, state: SharedState) -> Response {
     }
 }
 
-pub async fn submit_review(request: Request, state: SharedState) -> Response {
+pub async fn submit_review(request: Request) -> Response {
+    let state = app_state_snapshot();
+
     if let Err(err) = state.startup_ready() {
         return redirect_with_flash("/prs", FlashMessageView::error(err.message()));
     }

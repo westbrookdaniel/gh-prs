@@ -1,12 +1,14 @@
 use serde::Serialize;
 
-use crate::handlers::state::SharedState;
+use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 
 const HEALTH_OK_STATUS: &str = "ok";
 const HEALTH_DEGRADED_STATUS: &str = "degraded";
 
-pub async fn health(_request: Request, state: SharedState) -> Response {
+pub async fn health(_request: Request) -> Response {
+    let state = app_state_snapshot();
+
     #[derive(Serialize)]
     struct HealthResponse<'a> {
         status: &'a str,

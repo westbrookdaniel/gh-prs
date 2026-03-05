@@ -2,12 +2,13 @@ use crate::gh::models::RepoContext;
 use crate::handlers::context::{parse_pr_number, repo_from_request};
 use crate::handlers::flash::flash_from_query;
 use crate::handlers::format::{render_gh_error, render_template};
-use crate::handlers::state::SharedState;
+use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::{PrChangesTemplate, changes_page_model};
 
-pub async fn pull_request_changes(request: Request, state: SharedState) -> Response {
+pub async fn pull_request_changes(request: Request) -> Response {
     let flash = flash_from_query(&request);
+    let state = app_state_snapshot();
 
     if let Err(err) = state.startup_ready() {
         return render_gh_error(err);

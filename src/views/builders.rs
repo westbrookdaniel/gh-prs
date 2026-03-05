@@ -1,11 +1,12 @@
 use crate::gh::models::{
     DEFAULT_SEARCH_LIMIT, IssueComment, PreflightDiagnostics, PullRequestConversation,
     PullRequestFile, PullRequestReview, PullRequestReviewComment, PullRequestSearchItem,
-    PullRequestSearchQuery, RepoContext,
+    RepoContext,
 };
+use crate::search::SearchArgs;
 use crate::views::helpers::{
     build_detail_tabs, build_list_tabs, default_list_back_href, detail_path_from_repo,
-    diff_files_view, query_from_request, repo_action_path, state_label,
+    diff_files_view, repo_action_path, state_label,
 };
 use crate::views::types::{
     DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel,
@@ -16,12 +17,12 @@ use crate::views::types::{
 pub fn list_page_model(
     repo: Option<&RepoContext>,
     diagnostics: Option<&PreflightDiagnostics>,
-    query: &PullRequestSearchQuery,
+    query: &SearchArgs,
     items: Vec<PullRequestSearchItem>,
     flash: Option<crate::views::types::FlashMessageView>,
-    request: &crate::http::Request,
+    _request: &crate::http::Request,
 ) -> PrListPageModel {
-    let original_query = query_from_request(request);
+    let original_query = query.to_query_string();
     let rows: Vec<PrListRowView> = items
         .into_iter()
         .map(|item| PrListRowView {
@@ -71,7 +72,7 @@ pub fn detail_page_model(
     flash: Option<crate::views::types::FlashMessageView>,
     request: &crate::http::Request,
 ) -> PrDetailPageModel {
-    let query = query_from_request(request);
+    let query = SearchArgs::from_request(request).to_query_string();
     let PullRequestConversation {
         detail,
         issue_comments,
@@ -123,7 +124,7 @@ pub fn changes_page_model(
     flash: Option<crate::views::types::FlashMessageView>,
     request: &crate::http::Request,
 ) -> PrChangesPageModel {
-    let query = query_from_request(request);
+    let query = SearchArgs::from_request(request).to_query_string();
     let header = detail_header(&detail);
     let (tree_items, files) = diff_files_view(files);
 

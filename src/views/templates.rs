@@ -25,3 +25,9 @@ pub struct PrChangesTemplate {
 pub struct ErrorTemplate {
     pub model: ErrorPageModel,
 }
+
+#[derive(Template)]
+#[template(path = "pages/not_found.html")]
+pub struct NotFoundTemplate {
+    pub model: ErrorPageModel,
+}

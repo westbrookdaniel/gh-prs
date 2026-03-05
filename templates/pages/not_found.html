@@ -1,0 +1,18 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}{{ model.page_title }}{% endblock %}
+
+{% block content %}
+<main class="page narrow">
+  <section class="panel error-panel">
+    <p class="eyebrow">Error {{ model.status_code }}</p>
+    <h1 class="page-title">{{ model.heading }}</h1>
+    <p>{{ model.message }}</p>
+    <p class="meta">How to fix: {{ model.remediation }}</p>
+    {% if let Some(details) = model.details %}
+    <pre class="body-block">{{ details }}</pre>
+    {% endif %}
+    <p><a href="/prs">Back to pull request list</a></p>
+  </section>
+</main>
+{% endblock %}
