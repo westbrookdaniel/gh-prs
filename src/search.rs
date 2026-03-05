@@ -1,5 +1,5 @@
 use crate::gh::models::{
-    PullRequestOrder, PullRequestSort, PullRequestStatus, DEFAULT_SEARCH_LIMIT,
+    DEFAULT_SEARCH_LIMIT, PullRequestOrder, PullRequestSort, PullRequestStatus,
 };
 use crate::http::Request;
 
@@ -213,7 +213,7 @@ fn normalize_repo_parts(owner: &str, name: &str) -> Option<String> {
 mod tests {
     use super::SearchArgs;
     use crate::gh::models::{
-        PullRequestOrder, PullRequestSort, PullRequestStatus, DEFAULT_SEARCH_LIMIT,
+        DEFAULT_SEARCH_LIMIT, PullRequestOrder, PullRequestSort, PullRequestStatus,
     };
     use crate::http::Request;
 

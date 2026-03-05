@@ -1,10 +1,9 @@
 const STORAGE_KEYS = {
   theme: "ghprs.theme",
-  filters: "ghprs.prFilters.v1",
-  recentRepos: "ghprs.recentRepos.v1",
+  filters: "ghprs.prFilters.v2",
 };
 
-const FILTER_FIELDS = ["org", "repo", "status", "title", "author", "sort", "order"];
+const FILTER_FIELDS = ["status", "title", "author", "sort", "order"];
 
 function normalizeTheme(value) {
   return value === "dark" ? "dark" : "light";
@@ -29,7 +28,7 @@ function applyTheme(theme) {
   try {
     window.localStorage.setItem(STORAGE_KEYS.theme, normalized);
   } catch {
-    return;
+    // ignore
   }
 }
 
@@ -54,8 +53,213 @@ class ThemeToggle extends HTMLElement {
 
   renderLabel(button) {
     const current = normalizeTheme(document.documentElement.dataset.theme || "light");
-    button.textContent = current === "dark" ? "Dark mode" : "Light mode";
-    button.setAttribute("aria-label", "Toggle dark and light mode");
+    const isDark = current === "dark";
+    button.innerHTML = isDark
+      ? '<span aria-hidden="true">🌙</span><span class="sr-only">Dark mode</span>'
+      : '<span aria-hidden="true">☀️</span><span class="sr-only">Light mode</span>';
+    button.setAttribute("aria-label", isDark ? "Dark mode" : "Light mode");
+  }
+}
+
+class RepoMultiSelect extends HTMLElement {
+  connectedCallback() {
+    this.inputName = this.getAttribute("input-name") || "repo";
+    this.placeholder = this.getAttribute("placeholder") || "Search repos...";
+    this.options = [];
+    this.selected = new Set();
+    this.activeIndex = -1;
+
+    this.render();
+    this.loadOptionsFromSibling();
+  }
+
+  render() {
+    this.classList.add("repo-multiselect");
+    this.innerHTML = `
+      <div class="repo-combobox-shell">
+        <div class="repo-selected" data-selected></div>
+        <input type="text" class="repo-combobox-input" placeholder="${this.placeholder}" aria-label="Search repositories" />
+      </div>
+      <div class="repo-combobox-list" hidden></div>
+      <div class="repo-hidden-inputs"></div>
+    `;
+
+    this.input = this.querySelector(".repo-combobox-input");
+    this.list = this.querySelector(".repo-combobox-list");
+    this.selectedContainer = this.querySelector("[data-selected]");
+    this.hiddenInputs = this.querySelector(".repo-hidden-inputs");
+
+    this.input.addEventListener("focus", () => this.renderList());
+    this.input.addEventListener("input", () => this.renderList());
+    this.input.addEventListener("keydown", (event) => this.onKeyDown(event));
+
+    document.addEventListener("click", (event) => {
+      if (!this.contains(event.target)) {
+        this.list.hidden = true;
+      }
+    });
+  }
+
+  loadOptionsFromSibling() {
+    const source = this.parentElement?.querySelector(".repo-option-source");
+    if (!source) {
+      return;
+    }
+
+    const optionEls = source.querySelectorAll("option");
+    this.options = Array.from(optionEls).map((option) => option.value).filter(Boolean);
+    this.selected = new Set(
+      Array.from(optionEls)
+        .filter((option) => option.hasAttribute("selected"))
+        .map((option) => option.value),
+    );
+
+    this.renderSelected();
+    this.syncHiddenInputs();
+    this.renderList();
+  }
+
+  filteredOptions() {
+    const search = this.input.value.trim().toLowerCase();
+    if (!search) {
+      return this.options;
+    }
+    return this.options.filter((value) => value.toLowerCase().includes(search));
+  }
+
+  renderList() {
+    const filtered = this.filteredOptions();
+    this.list.innerHTML = "";
+    this.activeIndex = filtered.length === 0 ? -1 : 0;
+
+    if (filtered.length === 0) {
+      this.list.hidden = false;
+      const empty = document.createElement("div");
+      empty.className = "repo-option-empty";
+      empty.textContent = "No repositories found";
+      this.list.appendChild(empty);
+      return;
+    }
+
+    filtered.forEach((repo, index) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "repo-option";
+      row.dataset.repo = repo;
+      row.dataset.index = String(index);
+      if (index === this.activeIndex) {
+        row.classList.add("is-active");
+      }
+
+      const checkbox = document.createElement("span");
+      checkbox.className = "repo-option-check";
+      checkbox.textContent = this.selected.has(repo) ? "✓" : "";
+      row.appendChild(checkbox);
+
+      const label = document.createElement("span");
+      label.textContent = repo;
+      row.appendChild(label);
+
+      row.addEventListener("click", () => {
+        this.toggleRepo(repo);
+      });
+
+      this.list.appendChild(row);
+    });
+
+    this.list.hidden = false;
+  }
+
+  onKeyDown(event) {
+    const options = Array.from(this.list.querySelectorAll(".repo-option"));
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (options.length === 0) {
+        return;
+      }
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      this.activeIndex = Math.max(0, Math.min(options.length - 1, this.activeIndex + delta));
+      options.forEach((option, index) => option.classList.toggle("is-active", index === this.activeIndex));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      if (options.length === 0 || this.activeIndex < 0) {
+        return;
+      }
+      event.preventDefault();
+      const option = options[this.activeIndex];
+      this.toggleRepo(option.dataset.repo || "");
+      return;
+    }
+
+    if (event.key === "Escape") {
+      this.list.hidden = true;
+    }
+  }
+
+  toggleRepo(repo) {
+    if (!repo) {
+      return;
+    }
+
+    if (this.selected.has(repo)) {
+      this.selected.delete(repo);
+    } else {
+      this.selected.add(repo);
+    }
+
+    this.renderSelected();
+    this.syncHiddenInputs();
+    this.renderList();
+  }
+
+  renderSelected() {
+    this.selectedContainer.innerHTML = "";
+    if (this.selected.size === 0) {
+      const empty = document.createElement("span");
+      empty.className = "repo-selected-empty";
+      empty.textContent = "All accessible repos";
+      this.selectedContainer.appendChild(empty);
+      return;
+    }
+
+    Array.from(this.selected)
+      .sort()
+      .forEach((repo) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "repo-chip";
+        chip.textContent = repo;
+        chip.addEventListener("click", () => {
+          this.toggleRepo(repo);
+        });
+        this.selectedContainer.appendChild(chip);
+      });
+  }
+
+  syncHiddenInputs() {
+    this.hiddenInputs.innerHTML = "";
+    Array.from(this.selected)
+      .sort()
+      .forEach((repo) => {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = this.inputName;
+        input.value = repo;
+        this.hiddenInputs.appendChild(input);
+      });
+  }
+
+  getSelectedRepos() {
+    return Array.from(this.selected);
+  }
+
+  setSelectedRepos(repos) {
+    this.selected = new Set(repos);
+    this.renderSelected();
+    this.syncHiddenInputs();
+    this.renderList();
   }
 }
 
@@ -63,13 +267,11 @@ class PrFilterState extends HTMLElement {
   connectedCallback() {
     this.formId = this.getAttribute("form-id");
     this.resetId = this.getAttribute("reset-id");
-    this.chipsId = this.getAttribute("chips-id");
-    this.datalistId = this.getAttribute("datalist-id");
+    this.comboId = this.getAttribute("combo-id");
 
     this.form = document.getElementById(this.formId);
     this.resetLink = document.getElementById(this.resetId);
-    this.chips = document.getElementById(this.chipsId);
-    this.datalist = document.getElementById(this.datalistId);
+    this.combo = document.getElementById(this.comboId);
 
     if (!(this.form instanceof HTMLFormElement)) {
       return;
@@ -78,11 +280,15 @@ class PrFilterState extends HTMLElement {
     this.hydrateFromStorageIfNeeded();
     this.bindSaveState();
     this.bindReset();
-    this.renderRecentRepos();
+    this.bindTreeButtons();
   }
 
   hasQueryState() {
     const params = new URLSearchParams(window.location.search);
+    if (params.getAll("repo").length > 0) {
+      return true;
+    }
+
     return FILTER_FIELDS.some((name) => {
       const value = params.get(name);
       return value !== null && value !== "";
@@ -101,6 +307,14 @@ class PrFilterState extends HTMLElement {
         state[field] = value;
       }
     }
+
+    if (this.combo && typeof this.combo.getSelectedRepos === "function") {
+      const repos = this.combo.getSelectedRepos();
+      if (repos.length > 0) {
+        state.repo = repos;
+      }
+    }
+
     return state;
   }
 
@@ -124,42 +338,7 @@ class PrFilterState extends HTMLElement {
     try {
       window.localStorage.setItem(STORAGE_KEYS.filters, JSON.stringify(state));
     } catch {
-      return;
-    }
-  }
-
-  readRecentRepos() {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEYS.recentRepos);
-      if (!raw) {
-        return [];
-      }
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-      return parsed.filter((value) => typeof value === "string" && value.trim() !== "");
-    } catch {
-      return [];
-    }
-  }
-
-  writeRecentRepos(repo) {
-    const normalized = repo.trim();
-    if (!normalized.includes("/")) {
-      return;
-    }
-
-    const existing = this.readRecentRepos().filter(
-      (value) => value.toLowerCase() !== normalized.toLowerCase(),
-    );
-    existing.unshift(normalized);
-    const trimmed = existing.slice(0, 8);
-
-    try {
-      window.localStorage.setItem(STORAGE_KEYS.recentRepos, JSON.stringify(trimmed));
-    } catch {
-      return;
+      // ignore
     }
   }
 
@@ -173,6 +352,10 @@ class PrFilterState extends HTMLElement {
         input.value = String(state[field]);
       }
     }
+
+    if (Array.isArray(state.repo) && this.combo && typeof this.combo.setSelectedRepos === "function") {
+      this.combo.setSelectedRepos(state.repo);
+    }
   }
 
   queryStringFromState(state) {
@@ -183,6 +366,15 @@ class PrFilterState extends HTMLElement {
         params.set(field, value);
       }
     }
+
+    if (Array.isArray(state.repo)) {
+      state.repo.forEach((repo) => {
+        if (typeof repo === "string" && repo.trim() !== "") {
+          params.append("repo", repo);
+        }
+      });
+    }
+
     const query = params.toString();
     return query ? `?${query}` : "";
   }
@@ -191,9 +383,6 @@ class PrFilterState extends HTMLElement {
     if (this.hasQueryState()) {
       const current = this.readCurrentState();
       this.writeSavedFilters(current);
-      if (current.repo) {
-        this.writeRecentRepos(current.repo);
-      }
       return;
     }
 
@@ -212,11 +401,7 @@ class PrFilterState extends HTMLElement {
 
   bindSaveState() {
     this.form.addEventListener("submit", () => {
-      const state = this.readCurrentState();
-      this.writeSavedFilters(state);
-      if (state.repo) {
-        this.writeRecentRepos(state.repo);
-      }
+      this.writeSavedFilters(this.readCurrentState());
     });
   }
 
@@ -230,51 +415,34 @@ class PrFilterState extends HTMLElement {
       try {
         window.localStorage.removeItem(STORAGE_KEYS.filters);
       } catch {
-        // no-op
+        // ignore
       }
       window.location.assign("/prs");
     });
   }
 
-  renderRecentRepos() {
-    const repos = this.readRecentRepos();
-
-    if (this.datalist instanceof HTMLDataListElement) {
-      this.datalist.innerHTML = "";
-      for (const repo of repos) {
-        const option = document.createElement("option");
-        option.value = repo;
-        this.datalist.appendChild(option);
-      }
-    }
-
-    if (!(this.chips instanceof HTMLElement)) {
+  bindTreeButtons() {
+    const tree = document.getElementById("diff-file-tree");
+    if (!tree) {
       return;
     }
 
-    this.chips.innerHTML = "";
-    if (repos.length === 0) {
-      this.chips.hidden = true;
-      return;
-    }
-
-    this.chips.hidden = false;
-    for (const repo of repos) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "chip";
-      button.textContent = repo;
+    tree.querySelectorAll(".file-leaf-link").forEach((button) => {
       button.addEventListener("click", () => {
-        const input = this.form.elements.namedItem("repo");
-        if (input instanceof HTMLInputElement) {
-          input.value = repo;
-          input.focus();
+        const targetId = button.getAttribute("data-target");
+        if (!targetId) {
+          return;
         }
+        const section = document.getElementById(targetId);
+        if (!section) {
+          return;
+        }
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
       });
-      this.chips.appendChild(button);
-    }
+    });
   }
 }
 
 customElements.define("theme-toggle", ThemeToggle);
+customElements.define("repo-multiselect", RepoMultiSelect);
 customElements.define("pr-filter-state", PrFilterState);

@@ -1,7 +1,7 @@
 use crate::gh::models::{
-    IssueComment, PreflightDiagnostics, PullRequestConversation, PullRequestFile,
-    PullRequestReview, PullRequestReviewComment, PullRequestSearchItem, RepoContext,
-    DEFAULT_SEARCH_LIMIT,
+    DEFAULT_SEARCH_LIMIT, IssueComment, PreflightDiagnostics, PullRequestConversation,
+    PullRequestFile, PullRequestReview, PullRequestReviewComment, PullRequestSearchItem,
+    RepoContext,
 };
 use crate::search::SearchArgs;
 use crate::views::helpers::{
@@ -11,9 +11,9 @@ use crate::views::helpers::{
     review_decision_tone, review_state_tone, sort_controls, state_label,
 };
 use crate::views::types::{
-    checks_view, diagnostics_label, reviewer_decisions_or_none, source_label, DetailHeaderView,
-    ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel, PrDetailPageModel,
-    PrListPageModel, PrListRowView, PullRequestReviewView, RepoOptionView, ReviewCommentView,
+    DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel,
+    PrDetailPageModel, PrListPageModel, PrListRowView, PullRequestReviewView, RepoOptionView,
+    ReviewCommentView, checks_view, diagnostics_label, reviewer_decisions_or_none, source_label,
 };
 
 pub fn list_page_model(

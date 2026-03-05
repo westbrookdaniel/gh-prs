@@ -488,21 +488,21 @@ impl GhClient {
         if let Ok(orgs_result) = self
             .run_raw_command(
                 CommandClass::RepoList,
-                vec!["org".to_string(), "list".to_string(), "--limit".to_string(), "100".to_string()],
+                vec![
+                    "org".to_string(),
+                    "list".to_string(),
+                    "--limit".to_string(),
+                    "100".to_string(),
+                ],
             )
             .await
         {
-            for org in orgs_result
-                .stdout
-                .lines()
-                .map(str::trim)
-                .filter(|value| {
-                    !value.is_empty()
-                        && value
-                            .chars()
-                            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
-                })
-            {
+            for org in orgs_result.stdout.lines().map(str::trim).filter(|value| {
+                !value.is_empty()
+                    && value
+                        .chars()
+                        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+            }) {
                 owners.push(org.to_string());
             }
         }

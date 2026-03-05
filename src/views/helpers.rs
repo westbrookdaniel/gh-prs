@@ -8,7 +8,7 @@ use crate::views::types::{
 };
 use ammonia::Builder;
 use chrono::{DateTime, Utc};
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{Options, Parser, html};
 use std::collections::HashSet;
 
 pub fn clamp_flash(message: String) -> String {
@@ -139,7 +139,7 @@ pub fn markdown_to_html(input: &str) -> String {
 
     Builder::default()
         .tags(tags)
-        .url_schemes(["http", "https", "mailto"])
+        .url_schemes(["http", "https", "mailto"].into())
         .generic_attributes(attrs)
         .clean(&rendered)
         .to_string()

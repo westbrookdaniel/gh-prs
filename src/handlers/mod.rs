@@ -137,7 +137,10 @@ mod tests {
     fn list_handler_renders_rows() {
         smol::block_on(async {
             let _guard = test_lock().lock().expect("test lock");
-            set_app_state(state_with_responses(vec![ok("[]"), ok(r#"[
+            set_app_state(state_with_responses(vec![
+                ok(""),
+                ok("[]"),
+                ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,
@@ -150,7 +153,8 @@ mod tests {
                     "url":"https://example/pr/7",
                     "commentsCount":2
                 }
-            ]"#)]));
+            ]"#),
+            ]));
 
             let response =
                 list_pull_requests(request("GET /prs HTTP/1.1\r\nHost: localhost\r\n\r\n")).await;
@@ -214,8 +218,8 @@ mod tests {
             assert_eq!(response.status_code(), 200);
             let body = body_text(&response);
             assert!(body.contains("PR #7"));
-            assert!(body.contains("Submit Comment"));
-            assert!(body.contains("Submit Review"));
+            assert!(body.contains("Post Comment"));
+            assert!(body.contains("Approve"));
         });
     }
 
@@ -335,7 +339,10 @@ mod tests {
     fn list_links_preserve_query_context() {
         smol::block_on(async {
             let _guard = test_lock().lock().expect("test lock");
-            set_app_state(state_with_responses(vec![ok("[]"), ok(r#"[
+            set_app_state(state_with_responses(vec![
+                ok(""),
+                ok("[]"),
+                ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,
@@ -348,7 +355,8 @@ mod tests {
                     "url":"https://example/pr/7",
                     "commentsCount":2
                 }
-            ]"#)]));
+            ]"#),
+            ]));
 
             let response = list_pull_requests(request(
                 "GET /prs?org=acme&status=open HTTP/1.1\r\nHost: localhost\r\n\r\n",

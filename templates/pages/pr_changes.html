@@ -4,23 +4,28 @@
 
 {% block content %}
 <main class="page changes-page">
-  <section class="panel page-header detail-hero">
+  <section class="page-header detail-hero">
     <div class="detail-hero-top">
       <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
       <div class="hero-badges">
         <span class="badge {{ model.header.state_tone }}">{{ model.header.state_label }}</span>
+        {% if model.header.is_draft %}<span class="badge state-draft">DRAFT</span>{% endif %}
+        {% if let Some(behind_hint) = model.header.merge_state_explainer %}
+        <span class="badge {{ model.header.merge_state_tone }}" title="{{ behind_hint }}">{{ model.header.merge_state_status }}</span>
+        {% else %}
         <span class="badge {{ model.header.merge_state_tone }}">{{ model.header.merge_state_status }}</span>
+        {% endif %}
       </div>
     </div>
     <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
-    <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a> · {{ model.header.draft_label }} · files: <strong>{{ model.header.file_count }}</strong></p>
+    <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a> · files: <strong>{{ model.header.file_count }}</strong></p>
   </section>
 
   {% if let Some(flash) = model.flash %}
-  <section class="panel flash flash-{{ flash.kind }}">{{ flash.message }}</section>
+  <section class="flash flash-{{ flash.kind }}">{{ flash.message }}</section>
   {% endif %}
 
-  <section class="panel tabs-shell">
+  <section class="tabs-shell">
     <nav class="tab-strip" aria-label="Pull request sections">
       {% for tab in model.tabs %}
       <a class="tab-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
@@ -29,24 +34,29 @@
   </section>
 
   <section class="changes-layout">
-    <aside class="panel diff-tree">
-      <h2>Files</h2>
-      <ul class="tree-list">
+    <aside class="diff-tree" id="diff-file-tree">
+      <h2 class="tree-title">Files</h2>
+      <ul class="file-tree-root">
         {% for item in model.tree_items %}
-        <li><a href="#{{ item.id }}">{{ item.filename }}</a> <span class="meta">+{{ item.additions }} -{{ item.deletions }}</span></li>
+        <li class="file-node-leaf">
+          <button type="button" class="file-leaf-link" data-target="{{ item.id }}">
+            <span class="file-leaf-name">{{ item.filename }}</span>
+            <span class="meta">+{{ item.additions }} -{{ item.deletions }}</span>
+          </button>
+        </li>
         {% endfor %}
       </ul>
     </aside>
 
     <div class="diff-content">
       {% if model.files.is_empty() %}
-      <section class="panel"><p class="empty">No changed files were returned.</p></section>
+      <section><p class="empty">No changed files were returned.</p></section>
       {% endif %}
 
       {% for file in model.files %}
-      <section id="{{ file.id }}" class="panel diff-file">
-        <details {% if !file.is_collapsed %}open{% endif %}>
-          <summary>
+      <section id="{{ file.id }}" class="diff-file-section">
+        <details class="diff-file-accordion" {% if !file.is_collapsed %}open{% endif %}>
+          <summary class="diff-file-summary">
             <span class="diff-file-name">{{ file.filename }}</span>
             <span class="meta"><span class="badge">{{ file.status }}</span> · +{{ file.additions }} -{{ file.deletions }} · {{ file.changes }} changes</span>
           </summary>
@@ -56,7 +66,7 @@
           {% endif %}
 
           {% if file.has_patch %}
-          <pre class="body-block diff-block">{% for line in file.lines %}<span class="diff-line diff-{{ line.kind_class }}">{{ line.text }}</span>
+          <pre class="diff-block diff-lines-block">{% for line in file.lines %}<span class="diff-line diff-{{ line.kind_class }}">{{ line.text }}</span>
 {% endfor %}</pre>
           {% else %}
           <p class="empty">Patch not available for this file.</p>
