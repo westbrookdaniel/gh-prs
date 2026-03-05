@@ -3,7 +3,9 @@ use crate::handlers::detail::pull_request_detail;
 use crate::handlers::health::health;
 use crate::handlers::list::list_pull_requests;
 use crate::handlers::not_found::not_found;
-use crate::handlers::write::{submit_comment, submit_review};
+use crate::handlers::write::{
+    merge_pull_request, submit_comment, submit_review, update_pull_request_state, update_reviewers,
+};
 use crate::http::{App, Request, Response};
 
 pub fn register(app: App) -> App {
@@ -21,6 +23,18 @@ pub fn register(app: App) -> App {
         .post("/prs/:number/comment", submit_comment)
         .post("/repos/:owner/:repo/prs/:number/review", submit_review)
         .post("/prs/:number/review", submit_review)
+        .post(
+            "/repos/:owner/:repo/prs/:number/reviewers",
+            update_reviewers,
+        )
+        .post("/prs/:number/reviewers", update_reviewers)
+        .post("/repos/:owner/:repo/prs/:number/merge", merge_pull_request)
+        .post("/prs/:number/merge", merge_pull_request)
+        .post(
+            "/repos/:owner/:repo/prs/:number/state",
+            update_pull_request_state,
+        )
+        .post("/prs/:number/state", update_pull_request_state)
         .any("/*path", not_found)
 }
 

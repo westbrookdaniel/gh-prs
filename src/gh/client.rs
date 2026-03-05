@@ -50,6 +50,56 @@ impl ReviewEvent {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeMethod {
+    Merge,
+    Squash,
+    Rebase,
+}
+
+impl MergeMethod {
+    pub fn parse(value: &str) -> GhResult<Self> {
+        match value.trim() {
+            "merge" => Ok(Self::Merge),
+            "squash" => Ok(Self::Squash),
+            "rebase" => Ok(Self::Rebase),
+            _ => Err(GhError::InvalidInput {
+                field: "method".to_string(),
+                details: "expected merge|squash|rebase".to_string(),
+            }),
+        }
+    }
+
+    fn gh_flag(self) -> &'static str {
+        match self {
+            Self::Merge => "--merge",
+            Self::Squash => "--squash",
+            Self::Rebase => "--rebase",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PullRequestStateTransition {
+    Close,
+    Reopen,
+    Ready,
+}
+
+impl PullRequestStateTransition {
+    pub fn parse(value: &str) -> GhResult<Self> {
+        match value.trim() {
+            "close" => Ok(Self::Close),
+            "reopen" => Ok(Self::Reopen),
+            "ready" => Ok(Self::Ready),
+            _ => Err(GhError::InvalidInput {
+                field: "state".to_string(),
+                details: "expected close|reopen|ready".to_string(),
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CommandResult {
     pub stdout: String,
@@ -484,7 +534,7 @@ impl GhClient {
             return Ok(repos);
         }
 
-        let mut owners = vec!["@me".to_string()];
+        let mut owners = vec![String::new()];
         if let Ok(orgs_result) = self
             .run_raw_command(
                 CommandClass::RepoList,
@@ -512,15 +562,16 @@ impl GhClient {
 
         let mut repos = Vec::new();
         for owner in owners {
-            let args = vec![
-                "repo".to_string(),
-                "list".to_string(),
-                owner,
+            let mut args = vec!["repo".to_string(), "list".to_string()];
+            if !owner.is_empty() {
+                args.push(owner);
+            }
+            args.extend([
                 "--limit".to_string(),
                 "200".to_string(),
                 "--json".to_string(),
                 "nameWithOwner,isArchived".to_string(),
-            ];
+            ]);
 
             let Ok(result) = self.run_raw_command(CommandClass::RepoList, args).await else {
                 continue;
@@ -778,6 +829,128 @@ impl GhClient {
 
         cache_invalidate_prefix(&self.cache_key("pr|"));
 
+        Ok(())
+    }
+
+    pub async fn update_reviewers(
+        &self,
+        repo: &str,
+        number: u64,
+        reviewers: Vec<String>,
+    ) -> GhResult<()> {
+        let repo = validate_repo_identifier(repo)?;
+        validate_pr_number(number)?;
+        if reviewers.is_empty() {
+            return Err(GhError::InvalidInput {
+                field: "reviewers".to_string(),
+                details: "provide at least one reviewer".to_string(),
+            });
+        }
+
+        let mut args = vec![
+            "pr".to_string(),
+            "edit".to_string(),
+            number.to_string(),
+            "-R".to_string(),
+            repo.clone(),
+            "--add-reviewer".to_string(),
+        ];
+        args.push(reviewers.join(","));
+
+        self.run_raw_command_with_context(
+            CommandClass::UpdateReviewers,
+            args,
+            Some(repo.clone()),
+            Some(number),
+        )
+        .await?;
+
+        cache_invalidate_prefix(&self.cache_key("pr|"));
+        Ok(())
+    }
+
+    pub async fn merge_pull_request(
+        &self,
+        repo: &str,
+        number: u64,
+        method: MergeMethod,
+        delete_branch: bool,
+    ) -> GhResult<()> {
+        let repo = validate_repo_identifier(repo)?;
+        validate_pr_number(number)?;
+
+        let mut args = vec![
+            "pr".to_string(),
+            "merge".to_string(),
+            number.to_string(),
+            "-R".to_string(),
+            repo.clone(),
+            method.gh_flag().to_string(),
+            "--auto".to_string(),
+        ];
+
+        if delete_branch {
+            args.push("--delete-branch".to_string());
+        }
+
+        self.run_raw_command_with_context(
+            CommandClass::MergePullRequest,
+            args,
+            Some(repo.clone()),
+            Some(number),
+        )
+        .await?;
+
+        cache_invalidate_prefix(&self.cache_key("pr|"));
+        Ok(())
+    }
+
+    pub async fn update_pull_request_state(
+        &self,
+        repo: &str,
+        number: u64,
+        transition: PullRequestStateTransition,
+    ) -> GhResult<()> {
+        let repo = validate_repo_identifier(repo)?;
+        validate_pr_number(number)?;
+
+        let (command_class, args) = match transition {
+            PullRequestStateTransition::Close => (
+                CommandClass::UpdatePullRequestState,
+                vec![
+                    "pr".to_string(),
+                    "close".to_string(),
+                    number.to_string(),
+                    "-R".to_string(),
+                    repo.clone(),
+                ],
+            ),
+            PullRequestStateTransition::Reopen => (
+                CommandClass::UpdatePullRequestState,
+                vec![
+                    "pr".to_string(),
+                    "reopen".to_string(),
+                    number.to_string(),
+                    "-R".to_string(),
+                    repo.clone(),
+                ],
+            ),
+            PullRequestStateTransition::Ready => (
+                CommandClass::UpdatePullRequestState,
+                vec![
+                    "pr".to_string(),
+                    "ready".to_string(),
+                    number.to_string(),
+                    "-R".to_string(),
+                    repo.clone(),
+                ],
+            ),
+        };
+
+        self.run_raw_command_with_context(command_class, args, Some(repo.clone()), Some(number))
+            .await?;
+
+        cache_invalidate_prefix(&self.cache_key("pr|"));
         Ok(())
     }
 
@@ -1625,5 +1798,47 @@ mod tests {
 
         let parsed = super::parse_accessible_repositories(payload).expect("should parse");
         assert_eq!(parsed, vec!["acme/widgets".to_string()]);
+    }
+
+    #[test]
+    fn merge_reviewer_and_state_commands_use_expected_flags() {
+        let _guard = test_lock().lock().expect("test lock");
+        smol::block_on(async {
+            let runner = Arc::new(MockRunner::with_responses(vec![ok(""), ok(""), ok("")]));
+            let client = GhClient::with_runner(
+                Arc::clone(&runner) as Arc<dyn CommandRunner>,
+                DEFAULT_COMMAND_TIMEOUT,
+            );
+
+            client
+                .update_reviewers(
+                    "acme/widgets",
+                    7,
+                    vec!["alice".to_string(), "team/backend".to_string()],
+                )
+                .await
+                .expect("reviewers should update");
+
+            client
+                .merge_pull_request("acme/widgets", 7, super::MergeMethod::Squash, true)
+                .await
+                .expect("merge should run");
+
+            client
+                .update_pull_request_state(
+                    "acme/widgets",
+                    7,
+                    super::PullRequestStateTransition::Close,
+                )
+                .await
+                .expect("close should run");
+
+            let commands = runner.seen_commands();
+            assert_eq!(commands.len(), 3);
+            assert!(commands[0].args.contains(&"--add-reviewer".to_string()));
+            assert!(commands[1].args.contains(&"--squash".to_string()));
+            assert!(commands[1].args.contains(&"--delete-branch".to_string()));
+            assert_eq!(commands[2].args.get(1).map(String::as_str), Some("close"));
+        });
     }
 }

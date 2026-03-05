@@ -7,9 +7,10 @@ use crate::search::SearchArgs;
 use crate::views::helpers::{
     author_avatar_url, author_initial, avatar_style_from_author, build_detail_tabs,
     build_list_tabs, build_reviewer_statuses, default_list_back_href, detail_path_from_repo,
-    diff_files_view, format_timestamp, markdown_to_html, merge_state_explainer, merge_state_tone,
-    merge_state_tooltip, pr_state_tone, pr_state_tooltip, repo_action_path, review_decision_tone,
-    review_decision_tooltip, review_state_tone, sort_controls, state_label,
+    diff_files_view, format_timestamp, markdown_to_html, merge_conversation_feed,
+    merge_state_explainer, merge_state_tone, merge_state_tooltip, pr_state_tone, pr_state_tooltip,
+    repo_action_path, review_decision_tone, review_decision_tooltip, review_state_tone,
+    reviewer_text_only, sort_controls, state_label,
 };
 use crate::views::types::{
     DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel,
@@ -29,24 +30,29 @@ pub fn list_page_model(
     let original_query = query.to_query_string();
     let rows: Vec<PrListRowView> = items
         .into_iter()
-        .map(|item| PrListRowView {
-            repo_name_with_owner: item.repository_name_with_owner.clone(),
-            number: item.number,
-            detail_path: detail_path_from_repo(
-                &item.repository_name_with_owner,
-                item.number,
-                original_query.as_deref(),
-            ),
-            title: item.title,
-            state_label: state_label(item.state.clone(), item.is_draft),
-            state_tone: pr_state_tone(&item.state, item.is_draft),
-            state_tooltip: pr_state_tooltip(&item.state, item.is_draft),
-            author: item.author.clone(),
-            author_avatar_url: author_avatar_url(&item.author, &item.author_avatar_url),
-            author_avatar_style: avatar_style_from_author(&item.author),
-            author_initial: author_initial(&item.author),
-            updated_at: format_timestamp(&item.updated_at),
-            comment_count: item.comment_count,
+        .map(|item| {
+            let avatar_url = author_avatar_url(&item.author, &item.author_avatar_url);
+
+            PrListRowView {
+                repo_name_with_owner: item.repository_name_with_owner.clone(),
+                number: item.number,
+                detail_path: detail_path_from_repo(
+                    &item.repository_name_with_owner,
+                    item.number,
+                    original_query.as_deref(),
+                ),
+                title: item.title,
+                state_label: state_label(item.state.clone(), item.is_draft),
+                state_tone: pr_state_tone(&item.state, item.is_draft),
+                state_tooltip: pr_state_tooltip(&item.state, item.is_draft),
+                author: item.author.clone(),
+                author_avatar_fallback: avatar_url.trim().is_empty(),
+                author_avatar_url: avatar_url,
+                author_avatar_style: avatar_style_from_author(&item.author),
+                author_initial: author_initial(&item.author),
+                updated_at: format_timestamp(&item.updated_at),
+                comment_count: item.comment_count,
+            }
         })
         .collect();
 
@@ -107,6 +113,15 @@ pub fn detail_page_model(
         &detail.latest_reviewer_decisions,
         &reviews,
     );
+    let reviewer_statuses = reviewer_text_only(reviewer_statuses);
+    let mapped_issue_comments = map_issue_comments(issue_comments);
+    let mapped_reviews = map_reviews(reviews);
+    let mapped_review_comments = map_review_comments(review_comments);
+    let conversation_feed = merge_conversation_feed(
+        mapped_issue_comments,
+        mapped_reviews,
+        mapped_review_comments,
+    );
 
     PrDetailPageModel {
         page_title: format!("PR #{}", detail.number),
@@ -118,9 +133,7 @@ pub fn detail_page_model(
         reviewer_statuses,
         checks: checks_view(detail.checks),
         body_html: markdown_to_html(&detail.body),
-        issue_comments: map_issue_comments(issue_comments),
-        reviews: map_reviews(reviews),
-        review_comments: map_review_comments(review_comments),
+        conversation_feed,
         comment_post_path: repo_action_path(
             &repo.name_with_owner,
             detail.number,
@@ -133,6 +146,26 @@ pub fn detail_page_model(
             "review",
             query.as_deref(),
         ),
+        reviewers_post_path: repo_action_path(
+            &repo.name_with_owner,
+            detail.number,
+            "reviewers",
+            query.as_deref(),
+        ),
+        merge_post_path: repo_action_path(
+            &repo.name_with_owner,
+            detail.number,
+            "merge",
+            query.as_deref(),
+        ),
+        state_post_path: repo_action_path(
+            &repo.name_with_owner,
+            detail.number,
+            "state",
+            query.as_deref(),
+        ),
+        is_open: detail.state.eq_ignore_ascii_case("OPEN"),
+        is_closed: detail.state.eq_ignore_ascii_case("CLOSED"),
         flash,
     }
 }
@@ -209,6 +242,7 @@ fn detail_header(detail: &crate::gh::models::PullRequestDetail) -> DetailHeaderV
         ),
         commit_count: detail.commit_count,
         file_count: detail.file_count,
+        can_merge: detail.mergeable.eq_ignore_ascii_case("MERGEABLE"),
     }
 }
 
@@ -218,8 +252,8 @@ fn map_issue_comments(values: Vec<IssueComment>) -> Vec<IssueCommentView> {
         .map(|value| IssueCommentView {
             author: value.author,
             body_html: markdown_to_html(&value.body),
-            created_at: format_timestamp(&value.created_at),
-            updated_at: format_timestamp(&value.updated_at),
+            created_at: value.created_at,
+            updated_at: value.updated_at,
             url: value.url,
         })
         .collect()
@@ -237,7 +271,7 @@ fn map_reviews(values: Vec<PullRequestReview>) -> Vec<PullRequestReviewView> {
                 state,
                 tone,
                 body_html: markdown_to_html(&value.body),
-                submitted_at: format_timestamp(&value.submitted_at),
+                submitted_at: value.submitted_at,
                 url: value.url,
             }
         })
@@ -260,8 +294,8 @@ fn map_review_comments(values: Vec<PullRequestReviewComment>) -> Vec<ReviewComme
                 body_html: markdown_to_html(&value.body),
                 path: value.path,
                 line_label,
-                created_at: format_timestamp(&value.created_at),
-                updated_at: format_timestamp(&value.updated_at),
+                created_at: value.created_at,
+                updated_at: value.updated_at,
                 url: value.url,
             }
         })

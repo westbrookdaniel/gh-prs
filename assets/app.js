@@ -138,7 +138,8 @@ class RepoMultiSelect extends HTMLElement {
   }
 
   loadOptionsFromSibling() {
-    const source = this.parentElement?.querySelector(".repo-option-source");
+    const root = this.closest("form") || this.parentElement;
+    const source = root?.querySelector(".repo-option-source");
     if (!source) {
       return;
     }
@@ -503,3 +504,17 @@ class PrFilterState extends HTMLElement {
 customElements.define("theme-toggle", ThemeToggle);
 customElements.define("repo-multiselect", RepoMultiSelect);
 customElements.define("pr-filter-state", PrFilterState);
+
+document.addEventListener("error", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLImageElement)) {
+    return;
+  }
+  if (!target.closest(".pr-author-avatar")) {
+    return;
+  }
+  const avatar = target.closest(".pr-author-avatar");
+  if (avatar) {
+    avatar.classList.add("is-fallback");
+  }
+}, true);

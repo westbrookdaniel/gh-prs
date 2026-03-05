@@ -3,7 +3,8 @@ use crate::gh::models::{
 };
 use crate::search::SearchArgs;
 use crate::views::types::{
-    DetailTabView, DiffFileView, DiffLineView, DiffTreeItemView, ListTabView, ReviewerStatusView,
+    ConversationFeedItemView, DetailTabView, DiffFileView, DiffLineView, DiffTreeItemView,
+    IssueCommentView, ListTabView, PullRequestReviewView, ReviewCommentView, ReviewerStatusView,
     SortControlView,
 };
 use ammonia::Builder;
@@ -220,6 +221,78 @@ pub fn author_avatar_url(author: &str, explicit: &str) -> String {
     format!("https://github.com/{slug}.png?size=80")
 }
 
+pub fn merge_conversation_feed(
+    issue_comments: Vec<IssueCommentView>,
+    reviews: Vec<PullRequestReviewView>,
+    review_comments: Vec<ReviewCommentView>,
+) -> Vec<ConversationFeedItemView> {
+    let mut feed = Vec::new();
+
+    for comment in issue_comments {
+        let sort_key = sort_key_timestamp(&comment.created_at);
+        feed.push((
+            sort_key,
+            ConversationFeedItemView {
+                author: comment.author,
+                kind_label: "Comment".to_string(),
+                context_label: String::new(),
+                body_html: comment.body_html,
+                timestamp: format_timestamp(&comment.created_at),
+                url: comment.url,
+            },
+        ));
+    }
+
+    for review in reviews {
+        let sort_key = sort_key_timestamp(&review.submitted_at);
+        feed.push((
+            sort_key,
+            ConversationFeedItemView {
+                author: review.author,
+                kind_label: format!("Review · {}", review.state),
+                context_label: String::new(),
+                body_html: review.body_html,
+                timestamp: format_timestamp(&review.submitted_at),
+                url: review.url,
+            },
+        ));
+    }
+
+    for comment in review_comments {
+        let sort_key = sort_key_timestamp(&comment.created_at);
+        feed.push((
+            sort_key,
+            ConversationFeedItemView {
+                author: comment.author,
+                kind_label: "Review Comment".to_string(),
+                context_label: format!("{} · {}", comment.path, comment.line_label),
+                body_html: comment.body_html,
+                timestamp: format_timestamp(&comment.created_at),
+                url: comment.url,
+            },
+        ));
+    }
+
+    feed.sort_by(|left, right| left.0.cmp(&right.0));
+    feed.into_iter().map(|(_, item)| item).collect()
+}
+
+pub fn reviewer_text_only(statuses: Vec<ReviewerStatusView>) -> Vec<ReviewerStatusView> {
+    statuses
+        .into_iter()
+        .map(|mut status| {
+            status.body_html = String::new();
+            status
+        })
+        .collect()
+}
+
+fn sort_key_timestamp(value: &str) -> i64 {
+    DateTime::parse_from_rfc3339(value)
+        .map(|parsed| parsed.timestamp())
+        .unwrap_or_default()
+}
+
 pub fn author_initial(author: &str) -> String {
     author
         .chars()
@@ -323,7 +396,7 @@ pub fn build_reviewer_statuses(
                 tone: review_decision_tone(&decision.state),
                 state_tooltip: review_decision_tooltip(&decision.state),
                 submitted_at: format_timestamp(&decision.submitted_at),
-                body_html: markdown_to_html(&decision.body),
+                body_html: String::new(),
                 is_requested: requested_reviewers.contains(&decision.reviewer),
             },
         );
@@ -338,7 +411,7 @@ pub fn build_reviewer_statuses(
                 tone: review_state_tone(&review.state),
                 state_tooltip: review_state_tooltip(&review.state),
                 submitted_at: format_timestamp(&review.submitted_at),
-                body_html: markdown_to_html(&review.body),
+                body_html: String::new(),
                 is_requested: requested_reviewers.contains(&review.author),
             });
     }

@@ -40,19 +40,15 @@
       <article class="markdown-body">{{ model.body_html|safe }}</article>
       {% endif %}
 
-      {% for comment in model.issue_comments %}
+      {% for item in model.conversation_feed %}
       <article class="feed-item">
-        <p class="meta"><strong>{{ comment.author }}</strong> · {{ comment.created_at }} · <a href="{{ comment.url }}">GitHub</a></p>
-        <div class="markdown-body">{{ comment.body_html|safe }}</div>
+        <p class="meta"><strong>{{ item.author }}</strong> · {{ item.kind_label }}{% if !item.context_label.is_empty() %} · {{ item.context_label }}{% endif %} · {{ item.timestamp }} · <a href="{{ item.url }}">GitHub</a></p>
+        <div class="markdown-body">{{ item.body_html|safe }}</div>
       </article>
       {% endfor %}
-
-      {% for comment in model.review_comments %}
-      <article class="feed-item">
-        <p class="meta"><strong>{{ comment.author }}</strong> · {{ comment.path }} · {{ comment.line_label }} · <a href="{{ comment.url }}">GitHub</a></p>
-        <div class="markdown-body">{{ comment.body_html|safe }}</div>
-      </article>
-      {% endfor %}
+      {% if model.conversation_feed.is_empty() %}
+      <p class="empty">No conversation yet.</p>
+      {% endif %}
 
       <section class="review-actions-block">
         <article>
@@ -75,6 +71,44 @@
           </form>
         </article>
       </section>
+
+      <section class="pr-ops-section">
+        <article class="stack">
+          <label for="reviewers-input">Add reviewers</label>
+          <form method="post" action="{{ model.reviewers_post_path }}" class="stack inline-form">
+            <input id="reviewers-input" name="reviewers" type="text" placeholder="alice, team/backend" required />
+            <button type="submit" class="btn-neutral">Add Reviewers</button>
+          </form>
+        </article>
+
+        <article class="stack">
+          <label for="merge-method">Merge</label>
+          <form method="post" action="{{ model.merge_post_path }}" class="stack inline-form">
+            <select id="merge-method" name="method">
+              <option value="merge">Merge commit</option>
+              <option value="squash">Squash and merge</option>
+              <option value="rebase">Rebase and merge</option>
+            </select>
+            <label class="checkbox-row"><input type="checkbox" name="delete_branch" /> Delete branch</label>
+            <button type="submit" class="btn-action action-approve" {% if !model.header.can_merge %}disabled{% endif %}>Merge PR</button>
+          </form>
+        </article>
+
+        <article class="stack">
+          <label>PR state</label>
+          <form method="post" action="{{ model.state_post_path }}" class="state-actions">
+            {% if model.is_open %}
+            <button type="submit" name="state" value="close" class="btn-neutral">Close</button>
+            {% endif %}
+            {% if model.is_closed %}
+            <button type="submit" name="state" value="reopen" class="btn-neutral">Reopen</button>
+            {% endif %}
+            {% if model.header.is_draft %}
+            <button type="submit" name="state" value="ready" class="btn-neutral">Mark Ready</button>
+            {% endif %}
+          </form>
+        </article>
+      </section>
     </section>
 
     <aside class="reviewer-sidebar">
@@ -88,9 +122,6 @@
           <p class="reviewer-name"><strong>{{ reviewer.reviewer }}</strong></p>
           <p class="meta"><span class="badge {{ reviewer.tone }}" title="{{ reviewer.state_tooltip }}">{{ reviewer.state }}</span></p>
           <p class="meta">{{ reviewer.submitted_at }}</p>
-          {% if !reviewer.body_html.is_empty() %}
-          <div class="markdown-body">{{ reviewer.body_html|safe }}</div>
-          {% endif %}
         </article>
         {% endfor %}
         {% endif %}

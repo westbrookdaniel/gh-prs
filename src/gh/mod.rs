@@ -20,6 +20,9 @@ pub enum CommandClass {
     PullRequestReviewComments,
     SubmitComment,
     SubmitReview,
+    UpdateReviewers,
+    MergePullRequest,
+    UpdatePullRequestState,
 }
 
 impl CommandClass {
@@ -38,6 +41,9 @@ impl CommandClass {
             Self::PullRequestReviewComments => "pr.review_comments",
             Self::SubmitComment => "pr.comment",
             Self::SubmitReview => "pr.review",
+            Self::UpdateReviewers => "pr.reviewers",
+            Self::MergePullRequest => "pr.merge",
+            Self::UpdatePullRequestState => "pr.state",
         }
     }
 }

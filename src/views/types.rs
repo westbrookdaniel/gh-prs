@@ -33,6 +33,7 @@ pub struct PrListRowView {
     pub state_tooltip: String,
     pub author: String,
     pub author_avatar_url: String,
+    pub author_avatar_fallback: bool,
     pub author_avatar_style: String,
     pub author_initial: String,
     pub updated_at: String,
@@ -119,6 +120,16 @@ pub struct ReviewCommentView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationFeedItemView {
+    pub author: String,
+    pub kind_label: String,
+    pub context_label: String,
+    pub body_html: String,
+    pub timestamp: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChecksSummaryView {
     pub total: usize,
     pub successful: usize,
@@ -168,6 +179,7 @@ pub struct DetailHeaderView {
     pub review_decision_tooltip: String,
     pub commit_count: usize,
     pub file_count: usize,
+    pub can_merge: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,11 +236,14 @@ pub struct PrDetailPageModel {
     pub reviewer_statuses: Vec<ReviewerStatusView>,
     pub checks: ChecksSummaryView,
     pub body_html: String,
-    pub issue_comments: Vec<IssueCommentView>,
-    pub reviews: Vec<PullRequestReviewView>,
-    pub review_comments: Vec<ReviewCommentView>,
+    pub conversation_feed: Vec<ConversationFeedItemView>,
     pub comment_post_path: String,
     pub review_post_path: String,
+    pub reviewers_post_path: String,
+    pub merge_post_path: String,
+    pub state_post_path: String,
+    pub is_open: bool,
+    pub is_closed: bool,
     pub flash: Option<FlashMessageView>,
     pub back_to_list_href: String,
     pub tabs: Vec<DetailTabView>,

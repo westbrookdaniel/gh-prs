@@ -22,7 +22,7 @@ mod tests {
     use super::list::list_pull_requests;
     use super::routes::root_redirect;
     use super::state::{AppState, set_app_state};
-    use super::write::submit_comment;
+    use super::write::{merge_pull_request, submit_comment, update_pull_request_state};
     use crate::gh::GhError;
     use crate::gh::client::{CommandResult, CommandRunner, GhClient};
     use crate::gh::models::RepoContext;
@@ -311,6 +311,64 @@ mod tests {
             assert_eq!(response.status_code(), 303);
             let location = header(&response, "Location").unwrap_or_default();
             assert!(location.starts_with("/repos/acme/widgets/prs/7?org=acme"));
+            assert!(location.contains("flash=success"));
+        });
+    }
+
+    #[test]
+    fn merge_post_redirects_with_success_flash() {
+        smol::block_on(async {
+            let _guard = test_lock().lock().expect("test lock");
+            set_app_state(state_with_responses(vec![ok("")]));
+
+            let response = merge_pull_request(
+                request_with_number(
+                    "POST /repos/acme/widgets/prs/7/merge HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 30\r\n\r\nmethod=squash&delete_branch=on",
+                    "7",
+                )
+                .with_params(
+                    [
+                        ("owner".to_string(), "acme".to_string()),
+                        ("repo".to_string(), "widgets".to_string()),
+                        ("number".to_string(), "7".to_string()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            )
+            .await;
+
+            assert_eq!(response.status_code(), 303);
+            let location = header(&response, "Location").expect("location");
+            assert!(location.contains("flash=success"));
+        });
+    }
+
+    #[test]
+    fn state_post_redirects_with_success_flash() {
+        smol::block_on(async {
+            let _guard = test_lock().lock().expect("test lock");
+            set_app_state(state_with_responses(vec![ok("")]));
+
+            let response = update_pull_request_state(
+                request_with_number(
+                    "POST /repos/acme/widgets/prs/7/state HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 11\r\n\r\nstate=close",
+                    "7",
+                )
+                .with_params(
+                    [
+                        ("owner".to_string(), "acme".to_string()),
+                        ("repo".to_string(), "widgets".to_string()),
+                        ("number".to_string(), "7".to_string()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            )
+            .await;
+
+            assert_eq!(response.status_code(), 303);
+            let location = header(&response, "Location").expect("location");
             assert!(location.contains("flash=success"));
         });
     }

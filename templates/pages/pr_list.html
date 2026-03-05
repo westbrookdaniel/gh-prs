@@ -81,10 +81,10 @@
           <article>
             <div class="pr-item-top">
               <div class="pr-author-avatar" aria-hidden="true" style="{{ row.author_avatar_style }}">
-                {% if row.author_avatar_url.is_empty() %}
+                {% if row.author_avatar_fallback %}
                 <span class="avatar-fallback">{{ row.author_initial }}</span>
                 {% else %}
-                <img src="{{ row.author_avatar_url }}" alt="" loading="lazy" />
+                <img src="{{ row.author_avatar_url }}" alt="" loading="lazy" onerror="this.closest('.pr-author-avatar').classList.add('is-fallback')" />
                 {% endif %}
               </div>
               <div class="pr-item-main">
