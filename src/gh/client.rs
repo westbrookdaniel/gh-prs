@@ -471,6 +471,82 @@ impl GhClient {
         })
     }
 
+    pub async fn accessible_repositories(&self) -> GhResult<Vec<String>> {
+        let cache_key = self.cache_key("repo|accessible");
+        if let Some(cached) = cache_get(&cache_key) {
+            let repos = cached
+                .stdout
+                .lines()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<String>>();
+            return Ok(repos);
+        }
+
+        let mut owners = vec!["@me".to_string()];
+        if let Ok(orgs_result) = self
+            .run_raw_command(
+                CommandClass::RepoList,
+                vec!["org".to_string(), "list".to_string(), "--limit".to_string(), "100".to_string()],
+            )
+            .await
+        {
+            for org in orgs_result
+                .stdout
+                .lines()
+                .map(str::trim)
+                .filter(|value| {
+                    !value.is_empty()
+                        && value
+                            .chars()
+                            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+                })
+            {
+                owners.push(org.to_string());
+            }
+        }
+
+        owners.sort();
+        owners.dedup();
+
+        let mut repos = Vec::new();
+        for owner in owners {
+            let args = vec![
+                "repo".to_string(),
+                "list".to_string(),
+                owner,
+                "--limit".to_string(),
+                "200".to_string(),
+                "--json".to_string(),
+                "nameWithOwner,isArchived".to_string(),
+            ];
+
+            let Ok(result) = self.run_raw_command(CommandClass::RepoList, args).await else {
+                continue;
+            };
+
+            if let Ok(mut values) = parse_accessible_repositories(&result.stdout) {
+                repos.append(&mut values);
+            }
+        }
+
+        repos.sort();
+        repos.dedup();
+
+        cache_set(
+            &cache_key,
+            300,
+            CachedOutput {
+                stdout: repos.join("\n"),
+                stderr: String::new(),
+                code: Some(0),
+            },
+        );
+
+        Ok(repos)
+    }
+
     pub async fn search_pull_requests(
         &self,
         query: &SearchArgs,
@@ -491,10 +567,19 @@ impl GhClient {
             query.order.as_query_value().to_string(),
         ];
 
-        args.push("--owner".to_string());
-        args.push(query.org.clone().unwrap_or_else(|| "@me".to_string()));
+        let mut repos = query.repos.clone();
+        if repos.is_empty() {
+            if let Some(repo) = &query.repo {
+                repos.push(repo.clone());
+            }
+        }
 
-        if let Some(repo) = &query.repo {
+        if repos.is_empty() {
+            args.push("--owner".to_string());
+            args.push(query.org.clone().unwrap_or_else(|| "@me".to_string()));
+        }
+
+        for repo in &repos {
             args.push("--repo".to_string());
             args.push(repo.clone());
         }
@@ -527,7 +612,11 @@ impl GhClient {
         let cache_key = self.cache_key(&format!(
             "pr|search|{}|{}|{}|{}|{}|{}|{}",
             query.org.as_deref().unwrap_or("@me"),
-            query.repo.as_deref().unwrap_or("-"),
+            if repos.is_empty() {
+                "-".to_string()
+            } else {
+                repos.join(",")
+            },
             query.status.as_query_value(),
             query.title.as_deref().unwrap_or("-"),
             query.author.as_deref().unwrap_or("-"),
@@ -1031,10 +1120,12 @@ struct SearchRepositoryRaw {
     name: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct SearchUserRaw {
     login: Option<String>,
     name: Option<String>,
+    #[serde(rename = "avatarUrl")]
+    avatar_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1055,6 +1146,14 @@ struct PullRequestSearchItemRaw {
     repository: Option<SearchRepositoryRaw>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AccessibleRepositoryRaw {
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: String,
+    #[serde(rename = "isArchived", default)]
+    is_archived: bool,
+}
+
 fn parse_search_items(json: &str) -> Result<Vec<PullRequestSearchItem>, String> {
     let raw_items: Vec<PullRequestSearchItemRaw> =
         serde_json::from_str(json).map_err(|err| err.to_string())?;
@@ -1073,7 +1172,8 @@ fn parse_search_items(json: &str) -> Result<Vec<PullRequestSearchItem>, String> 
                 title: raw.title,
                 state: raw.state.to_ascii_uppercase(),
                 is_draft: raw.is_draft,
-                author: extract_search_user(raw.author),
+                author: extract_search_user(raw.author.clone()),
+                author_avatar_url: extract_search_user_avatar_url(raw.author),
                 created_at: raw.created_at,
                 updated_at: raw.updated_at,
                 url: raw.url,
@@ -1083,10 +1183,26 @@ fn parse_search_items(json: &str) -> Result<Vec<PullRequestSearchItem>, String> 
         .collect())
 }
 
+fn parse_accessible_repositories(json: &str) -> Result<Vec<String>, String> {
+    let values: Vec<AccessibleRepositoryRaw> =
+        serde_json::from_str(json).map_err(|err| err.to_string())?;
+    Ok(values
+        .into_iter()
+        .filter(|repo| !repo.is_archived)
+        .map(|repo| repo.name_with_owner)
+        .collect())
+}
+
 fn extract_search_user(user: Option<SearchUserRaw>) -> String {
     user.and_then(|candidate| candidate.login.or(candidate.name))
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn extract_search_user_avatar_url(user: Option<SearchUserRaw>) -> String {
+    user.and_then(|candidate| candidate.avatar_url)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1386,6 +1502,7 @@ mod tests {
             );
             let query = SearchArgs {
                 org: Some("westbrookdaniel".to_string()),
+                repos: vec!["westbrookdaniel/blogs".to_string()],
                 repo: Some("westbrookdaniel/blogs".to_string()),
                 status: PullRequestStatus::Open,
                 title: Some("security".to_string()),
@@ -1405,8 +1522,6 @@ mod tests {
                 .next()
                 .expect("one command");
             assert_eq!(command.class, CommandClass::PullRequestSearch);
-            assert!(command.args.contains(&"--owner".to_string()));
-            assert!(command.args.contains(&"westbrookdaniel".to_string()));
             assert!(command.args.contains(&"--repo".to_string()));
             assert!(command.args.contains(&"westbrookdaniel/blogs".to_string()));
             assert!(command.args.contains(&"--state".to_string()));
@@ -1499,5 +1614,16 @@ mod tests {
                     .contains(&"repos/acme/widgets/pulls/8/files?per_page=100".to_string())
             );
         });
+    }
+
+    #[test]
+    fn parses_accessible_repositories_payload() {
+        let payload = r#"[
+            {"nameWithOwner":"acme/widgets","isArchived":false},
+            {"nameWithOwner":"acme/legacy","isArchived":true}
+        ]"#;
+
+        let parsed = super::parse_accessible_repositories(payload).expect("should parse");
+        assert_eq!(parsed, vec!["acme/widgets".to_string()]);
     }
 }

@@ -1,8 +1,16 @@
-use crate::gh::models::{PullRequestFile, PullRequestStatus, RepoContext};
+use crate::gh::models::{
+    PullRequestFile, PullRequestOrder, PullRequestSort, PullRequestStatus, RepoContext,
+};
 use crate::search::SearchArgs;
 use crate::views::types::{
-    DetailTabView, DiffFileView, DiffLineView, DiffTreeItemView, ListTabView,
+    DetailTabView, DiffFileView, DiffLineView, DiffTreeItemView, ListTabView, ReviewerStatusView,
+    SortControlView,
 };
+use ammonia::Builder;
+use chrono::{DateTime, Utc};
+use pulldown_cmark::{html, Options, Parser};
+use std::collections::HashSet;
+
 pub fn clamp_flash(message: String) -> String {
     message.chars().take(240).collect()
 }
@@ -60,6 +68,203 @@ pub fn review_state_tone(state: &str) -> String {
         "COMMENTED" => "state-open".to_string(),
         _ => "state-neutral".to_string(),
     }
+}
+
+pub fn format_timestamp(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "N/A".to_string();
+    }
+
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(trimmed) {
+        return parsed
+            .with_timezone(&Utc)
+            .format("%b %-d, %Y at %-I:%M %p UTC")
+            .to_string();
+    }
+
+    trimmed.to_string()
+}
+
+pub fn markdown_to_html(input: &str) -> String {
+    if input.trim().is_empty() {
+        return String::new();
+    }
+
+    let mut rendered = String::new();
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_TASKLISTS);
+    options.insert(Options::ENABLE_FOOTNOTES);
+    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
+
+    let parser = Parser::new_ext(input, options);
+    html::push_html(&mut rendered, parser);
+
+    let mut tags = HashSet::new();
+    for tag in [
+        "a",
+        "p",
+        "br",
+        "blockquote",
+        "pre",
+        "code",
+        "em",
+        "strong",
+        "ul",
+        "ol",
+        "li",
+        "hr",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "table",
+        "thead",
+        "tbody",
+        "tr",
+        "th",
+        "td",
+        "span",
+    ] {
+        tags.insert(tag);
+    }
+
+    let mut attrs = HashSet::new();
+    attrs.insert("href");
+    attrs.insert("title");
+
+    Builder::default()
+        .tags(tags)
+        .url_schemes(["http", "https", "mailto"])
+        .generic_attributes(attrs)
+        .clean(&rendered)
+        .to_string()
+}
+
+pub fn author_avatar_url(author: &str, explicit: &str) -> String {
+    let explicit = explicit.trim();
+    if !explicit.is_empty() {
+        return explicit.to_string();
+    }
+
+    let slug = author.trim().trim_start_matches('@');
+    if slug.is_empty() || slug.eq_ignore_ascii_case("unknown") {
+        return String::new();
+    }
+
+    format!("https://github.com/{slug}.png?size=80")
+}
+
+pub fn author_initial(author: &str) -> String {
+    author
+        .chars()
+        .find(|ch| ch.is_alphanumeric())
+        .map(|ch| ch.to_ascii_uppercase().to_string())
+        .unwrap_or_else(|| "?".to_string())
+}
+
+pub fn sort_controls(query: &SearchArgs) -> Vec<SortControlView> {
+    let specs = [
+        (PullRequestSort::Updated, "Updated"),
+        (PullRequestSort::Created, "Created"),
+        (PullRequestSort::Comments, "Comments"),
+    ];
+
+    specs
+        .into_iter()
+        .map(|(sort, label)| {
+            let selected = query.sort == sort;
+            let target_order = if selected && query.order == PullRequestOrder::Desc {
+                PullRequestOrder::Asc
+            } else {
+                PullRequestOrder::Desc
+            };
+            let target = query.with_sort_order(sort, target_order);
+            let direction = if selected {
+                if query.order == PullRequestOrder::Desc {
+                    "down"
+                } else {
+                    "up"
+                }
+            } else {
+                "none"
+            };
+
+            SortControlView {
+                label: label.to_string(),
+                href: with_query("/prs".to_string(), target.to_query_string().as_deref()),
+                selected,
+                direction: direction.to_string(),
+            }
+        })
+        .collect()
+}
+
+pub fn merge_state_explainer(merge_state_status: &str) -> Option<String> {
+    let status = merge_state_status.trim().to_ascii_uppercase();
+    if status == "BEHIND" {
+        return Some("Behind means this branch is behind the base branch and may require an update before merge.".to_string());
+    }
+
+    None
+}
+
+pub fn build_reviewer_statuses(
+    requested_reviewers: &[String],
+    latest_reviewer_decisions: &[crate::gh::models::ReviewerDecision],
+    reviews: &[crate::gh::models::PullRequestReview],
+) -> Vec<ReviewerStatusView> {
+    let mut by_reviewer = std::collections::BTreeMap::<String, ReviewerStatusView>::new();
+
+    for reviewer in requested_reviewers {
+        if reviewer == "none" {
+            continue;
+        }
+        by_reviewer.insert(
+            reviewer.clone(),
+            ReviewerStatusView {
+                reviewer: reviewer.clone(),
+                state: "REVIEW_REQUIRED".to_string(),
+                tone: review_decision_tone("REVIEW_REQUIRED"),
+                submitted_at: "Pending".to_string(),
+                body_html: String::new(),
+                is_requested: true,
+            },
+        );
+    }
+
+    for decision in latest_reviewer_decisions {
+        by_reviewer.insert(
+            decision.reviewer.clone(),
+            ReviewerStatusView {
+                reviewer: decision.reviewer.clone(),
+                state: decision.state.clone(),
+                tone: review_decision_tone(&decision.state),
+                submitted_at: format_timestamp(&decision.submitted_at),
+                body_html: markdown_to_html(&decision.body),
+                is_requested: requested_reviewers.contains(&decision.reviewer),
+            },
+        );
+    }
+
+    for review in reviews {
+        by_reviewer
+            .entry(review.author.clone())
+            .or_insert_with(|| ReviewerStatusView {
+                reviewer: review.author.clone(),
+                state: review.state.clone(),
+                tone: review_state_tone(&review.state),
+                submitted_at: format_timestamp(&review.submitted_at),
+                body_html: markdown_to_html(&review.body),
+                is_requested: requested_reviewers.contains(&review.author),
+            });
+    }
+
+    by_reviewer.into_values().collect()
 }
 
 pub fn detail_path_from_repo(repo: &str, number: u64, query: Option<&str>) -> String {
@@ -240,7 +445,9 @@ fn parse_patch_lines(patch: Option<&str>) -> Vec<DiffLineView> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_list_tabs, diff_files_view, parse_patch_lines};
+    use super::{
+        build_list_tabs, diff_files_view, format_timestamp, markdown_to_html, parse_patch_lines,
+    };
     use crate::gh::models::PullRequestFile;
     use crate::gh::models::PullRequestStatus;
     use crate::search::SearchArgs;
@@ -248,7 +455,7 @@ mod tests {
     #[test]
     fn query_for_status_preserves_filters() {
         let query = SearchArgs {
-            org: Some("acme".to_string()),
+            repos: vec!["acme/widgets".to_string()],
             repo: Some("acme/widgets".to_string()),
             title: Some("auth".to_string()),
             ..SearchArgs::default()
@@ -259,7 +466,6 @@ mod tests {
             .to_query_string()
             .expect("query string");
         assert!(encoded.contains("status=open"));
-        assert!(encoded.contains("org=acme"));
         assert!(encoded.contains("repo=acme%2Fwidgets"));
     }
 
@@ -312,5 +518,19 @@ mod tests {
         let (_, rendered) = diff_files_view(files);
         assert!(!rendered[0].is_collapsed);
         assert!(rendered[1].is_collapsed);
+    }
+
+    #[test]
+    fn formats_timestamp_to_human_readable() {
+        let formatted = format_timestamp("2026-01-01T14:08:00Z");
+        assert!(formatted.contains("2026"));
+        assert!(formatted.contains("UTC"));
+    }
+
+    #[test]
+    fn markdown_rendering_strips_unsafe_html() {
+        let html = markdown_to_html("hello <script>alert(1)</script>");
+        assert!(html.contains("hello"));
+        assert!(!html.contains("script"));
     }
 }

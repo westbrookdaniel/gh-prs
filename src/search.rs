@@ -1,11 +1,12 @@
 use crate::gh::models::{
-    DEFAULT_SEARCH_LIMIT, PullRequestOrder, PullRequestSort, PullRequestStatus,
+    PullRequestOrder, PullRequestSort, PullRequestStatus, DEFAULT_SEARCH_LIMIT,
 };
 use crate::http::Request;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchArgs {
     pub org: Option<String>,
+    pub repos: Vec<String>,
     pub repo: Option<String>,
     pub status: PullRequestStatus,
     pub title: Option<String>,
@@ -20,6 +21,7 @@ impl Default for SearchArgs {
     fn default() -> Self {
         Self {
             org: None,
+            repos: Vec::new(),
             repo: None,
             status: PullRequestStatus::All,
             title: None,
@@ -37,9 +39,22 @@ impl SearchArgs {
         let mut args = Self::default();
 
         args.org = request.query_param("org").and_then(normalize_simple);
-        args.repo = request
-            .query_param("repo")
-            .and_then(|value| normalize_repo(value, args.org.as_deref()));
+        let mut repos = Vec::new();
+        if let Some(values) = request.query_values("repo") {
+            for value in values {
+                for candidate in value.split(',') {
+                    if let Some(repo) = normalize_repo(candidate, args.org.as_deref()) {
+                        repos.push(repo);
+                    }
+                }
+            }
+        }
+
+        repos.sort();
+        repos.dedup();
+        args.repo = repos.first().cloned();
+        args.repos = repos;
+
         args.title = request.query_param("title").and_then(normalize_text);
         args.author = request.query_param("author").and_then(normalize_login);
 
@@ -83,7 +98,7 @@ impl SearchArgs {
         if let Some(org) = &self.org {
             encoded.push(("org".to_string(), org.clone()));
         }
-        if let Some(repo) = &self.repo {
+        for repo in &self.repos {
             encoded.push(("repo".to_string(), repo.clone()));
         }
         if self.status != PullRequestStatus::All {
@@ -121,6 +136,13 @@ impl SearchArgs {
     pub fn with_status(&self, status: PullRequestStatus) -> Self {
         let mut cloned = self.clone();
         cloned.status = status;
+        cloned
+    }
+
+    pub fn with_sort_order(&self, sort: PullRequestSort, order: PullRequestOrder) -> Self {
+        let mut cloned = self.clone();
+        cloned.sort = sort;
+        cloned.order = order;
         cloned
     }
 }
@@ -191,7 +213,7 @@ fn normalize_repo_parts(owner: &str, name: &str) -> Option<String> {
 mod tests {
     use super::SearchArgs;
     use crate::gh::models::{
-        DEFAULT_SEARCH_LIMIT, PullRequestOrder, PullRequestSort, PullRequestStatus,
+        PullRequestOrder, PullRequestSort, PullRequestStatus, DEFAULT_SEARCH_LIMIT,
     };
     use crate::http::Request;
 
@@ -208,6 +230,7 @@ mod tests {
 
         assert_eq!(query.org.as_deref(), Some("westbrookdaniel"));
         assert_eq!(query.repo.as_deref(), Some("westbrookdaniel/blogs"));
+        assert_eq!(query.repos, vec!["westbrookdaniel/blogs".to_string()]);
         assert_eq!(query.status, PullRequestStatus::Merged);
         assert_eq!(query.title.as_deref(), Some("security"));
         assert_eq!(query.author.as_deref(), Some("alice"));
@@ -239,5 +262,19 @@ mod tests {
         let query = SearchArgs::from_request(&request);
         assert_eq!(query.limit, DEFAULT_SEARCH_LIMIT);
         assert_eq!(query.to_query_string(), Some("org=example".to_string()));
+    }
+
+    #[test]
+    fn parses_multiple_repo_filters() {
+        let req = request(
+            "GET /prs?repo=acme/widgets&repo=acme/site&status=open HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        );
+        let query = SearchArgs::from_request(&req);
+
+        assert_eq!(
+            query.repos,
+            vec!["acme/site".to_string(), "acme/widgets".to_string()]
+        );
+        assert_eq!(query.repo.as_deref(), Some("acme/site"));
     }
 }

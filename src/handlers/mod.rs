@@ -137,7 +137,7 @@ mod tests {
     fn list_handler_renders_rows() {
         smol::block_on(async {
             let _guard = test_lock().lock().expect("test lock");
-            set_app_state(state_with_responses(vec![ok(r#"[
+            set_app_state(state_with_responses(vec![ok("[]"), ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,
@@ -335,7 +335,7 @@ mod tests {
     fn list_links_preserve_query_context() {
         smol::block_on(async {
             let _guard = test_lock().lock().expect("test lock");
-            set_app_state(state_with_responses(vec![ok(r#"[
+            set_app_state(state_with_responses(vec![ok("[]"), ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,

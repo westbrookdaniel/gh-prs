@@ -1,24 +1,26 @@
 use crate::gh::models::{
-    DEFAULT_SEARCH_LIMIT, IssueComment, PreflightDiagnostics, PullRequestConversation,
-    PullRequestFile, PullRequestReview, PullRequestReviewComment, PullRequestSearchItem,
-    RepoContext,
+    IssueComment, PreflightDiagnostics, PullRequestConversation, PullRequestFile,
+    PullRequestReview, PullRequestReviewComment, PullRequestSearchItem, RepoContext,
+    DEFAULT_SEARCH_LIMIT,
 };
 use crate::search::SearchArgs;
 use crate::views::helpers::{
-    build_detail_tabs, build_list_tabs, default_list_back_href, detail_path_from_repo,
-    diff_files_view, merge_state_tone, pr_state_tone, repo_action_path, review_decision_tone,
-    review_state_tone, state_label,
+    author_avatar_url, author_initial, build_detail_tabs, build_list_tabs, build_reviewer_statuses,
+    default_list_back_href, detail_path_from_repo, diff_files_view, format_timestamp,
+    markdown_to_html, merge_state_explainer, merge_state_tone, pr_state_tone, repo_action_path,
+    review_decision_tone, review_state_tone, sort_controls, state_label,
 };
 use crate::views::types::{
-    DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel,
-    PrDetailPageModel, PrListPageModel, PrListRowView, PullRequestReviewView, ReviewCommentView,
-    checks_view, diagnostics_label, reviewer_decisions_or_none, source_label,
+    checks_view, diagnostics_label, reviewer_decisions_or_none, source_label, DetailHeaderView,
+    ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel, PrDetailPageModel,
+    PrListPageModel, PrListRowView, PullRequestReviewView, RepoOptionView, ReviewCommentView,
 };
 
 pub fn list_page_model(
     repo: Option<&RepoContext>,
     diagnostics: Option<&PreflightDiagnostics>,
     query: &SearchArgs,
+    available_repos: Vec<String>,
     items: Vec<PullRequestSearchItem>,
     flash: Option<crate::views::types::FlashMessageView>,
     _request: &crate::http::Request,
@@ -37,8 +39,10 @@ pub fn list_page_model(
             title: item.title,
             state_label: state_label(item.state.clone(), item.is_draft),
             state_tone: pr_state_tone(&item.state, item.is_draft),
-            author: item.author,
-            updated_at: item.updated_at,
+            author: item.author.clone(),
+            author_avatar_url: author_avatar_url(&item.author, &item.author_avatar_url),
+            author_initial: author_initial(&item.author),
+            updated_at: format_timestamp(&item.updated_at),
             comment_count: item.comment_count,
         })
         .collect();
@@ -51,15 +55,22 @@ pub fn list_page_model(
         gh_version,
         authenticated_hosts,
         row_count: rows.len(),
+        repo_options: available_repos
+            .iter()
+            .map(|value| RepoOptionView {
+                value: value.clone(),
+                selected: query.repos.contains(value),
+            })
+            .collect(),
         filters: FilterFormView {
-            org: query.org.clone().unwrap_or_default(),
-            repo: query.repo.clone().unwrap_or_default(),
+            repos: query.repos.clone(),
             status: query.status.as_query_value().to_string(),
             title: query.title.clone().unwrap_or_default(),
             author: query.author.clone().unwrap_or_default(),
             sort: query.sort.as_query_value().to_string(),
             order: query.order.as_query_value().to_string(),
         },
+        sort_controls: sort_controls(query),
         has_results_limit_warning: query.limit >= DEFAULT_SEARCH_LIMIT
             && rows.len() >= DEFAULT_SEARCH_LIMIT,
         tabs: build_list_tabs(query),
@@ -88,6 +99,11 @@ pub fn detail_page_model(
     } else {
         detail.requested_reviewers.clone()
     };
+    let reviewer_statuses = build_reviewer_statuses(
+        &requested_reviewers,
+        &detail.latest_reviewer_decisions,
+        &reviews,
+    );
 
     PrDetailPageModel {
         page_title: format!("PR #{}", detail.number),
@@ -96,10 +112,11 @@ pub fn detail_page_model(
         tabs: build_detail_tabs(repo, detail.number, query.as_deref(), false),
         back_to_list_href: default_list_back_href(query.as_deref()),
         header,
+        reviewer_statuses,
         requested_reviewers,
         reviewer_decisions: reviewer_decisions_or_none(detail.latest_reviewer_decisions),
         checks: checks_view(detail.checks),
-        body: detail.body,
+        body_html: markdown_to_html(&detail.body),
         issue_comments: map_issue_comments(issue_comments),
         reviews: map_reviews(reviews),
         review_comments: map_review_comments(review_comments),
@@ -160,19 +177,21 @@ fn detail_header(detail: &crate::gh::models::PullRequestDetail) -> DetailHeaderV
         title: detail.title.clone(),
         state_label: detail.state.clone(),
         state_tone: pr_state_tone(&detail.state, detail.is_draft),
+        is_draft: detail.is_draft,
         draft_label: if detail.is_draft {
             "DRAFT".to_string()
         } else {
             "READY".to_string()
         },
         author: detail.author.clone(),
-        created_at: detail.created_at.clone(),
-        updated_at: detail.updated_at.clone(),
+        created_at: format_timestamp(&detail.created_at),
+        updated_at: format_timestamp(&detail.updated_at),
         url: detail.url.clone(),
         base_ref_name: detail.base_ref_name.clone(),
         head_ref_name: detail.head_ref_name.clone(),
         merge_state_status: detail.merge_state_status.clone(),
         merge_state_tone: merge_state_tone(&detail.merge_state_status, &detail.mergeable),
+        merge_state_explainer: merge_state_explainer(&detail.merge_state_status),
         mergeable: detail.mergeable.clone(),
         review_decision: detail
             .review_decision
@@ -191,9 +210,9 @@ fn map_issue_comments(values: Vec<IssueComment>) -> Vec<IssueCommentView> {
         .into_iter()
         .map(|value| IssueCommentView {
             author: value.author,
-            body: value.body,
-            created_at: value.created_at,
-            updated_at: value.updated_at,
+            body_html: markdown_to_html(&value.body),
+            created_at: format_timestamp(&value.created_at),
+            updated_at: format_timestamp(&value.updated_at),
             url: value.url,
         })
         .collect()
@@ -210,8 +229,8 @@ fn map_reviews(values: Vec<PullRequestReview>) -> Vec<PullRequestReviewView> {
                 author: value.author,
                 state,
                 tone,
-                body: value.body,
-                submitted_at: value.submitted_at,
+                body_html: markdown_to_html(&value.body),
+                submitted_at: format_timestamp(&value.submitted_at),
                 url: value.url,
             }
         })
@@ -231,11 +250,11 @@ fn map_review_comments(values: Vec<PullRequestReviewComment>) -> Vec<ReviewComme
 
             ReviewCommentView {
                 author: value.author,
-                body: value.body,
+                body_html: markdown_to_html(&value.body),
                 path: value.path,
                 line_label,
-                created_at: value.created_at,
-                updated_at: value.updated_at,
+                created_at: format_timestamp(&value.created_at),
+                updated_at: format_timestamp(&value.updated_at),
                 url: value.url,
             }
         })

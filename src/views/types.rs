@@ -31,19 +31,34 @@ pub struct PrListRowView {
     pub state_label: String,
     pub state_tone: String,
     pub author: String,
+    pub author_avatar_url: String,
+    pub author_initial: String,
     pub updated_at: String,
     pub comment_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoOptionView {
+    pub value: String,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FilterFormView {
-    pub org: String,
-    pub repo: String,
+    pub repos: Vec<String>,
     pub status: String,
     pub title: String,
     pub author: String,
     pub sort: String,
     pub order: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SortControlView {
+    pub label: String,
+    pub href: String,
+    pub selected: bool,
+    pub direction: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,9 +85,19 @@ pub struct ReviewDecisionView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewerStatusView {
+    pub reviewer: String,
+    pub state: String,
+    pub tone: String,
+    pub submitted_at: String,
+    pub body_html: String,
+    pub is_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssueCommentView {
     pub author: String,
-    pub body: String,
+    pub body_html: String,
     pub created_at: String,
     pub updated_at: String,
     pub url: String,
@@ -83,7 +108,7 @@ pub struct PullRequestReviewView {
     pub author: String,
     pub state: String,
     pub tone: String,
-    pub body: String,
+    pub body_html: String,
     pub submitted_at: String,
     pub url: String,
 }
@@ -91,7 +116,7 @@ pub struct PullRequestReviewView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewCommentView {
     pub author: String,
-    pub body: String,
+    pub body_html: String,
     pub path: String,
     pub line_label: String,
     pub created_at: String,
@@ -106,6 +131,10 @@ pub struct ChecksSummaryView {
     pub failed: usize,
     pub pending: usize,
     pub neutral: usize,
+    pub successful_pct: usize,
+    pub failed_pct: usize,
+    pub pending_pct: usize,
+    pub neutral_pct: usize,
     pub headline: String,
 }
 
@@ -115,6 +144,7 @@ pub struct DetailHeaderView {
     pub title: String,
     pub state_label: String,
     pub state_tone: String,
+    pub is_draft: bool,
     pub draft_label: String,
     pub author: String,
     pub created_at: String,
@@ -124,6 +154,7 @@ pub struct DetailHeaderView {
     pub head_ref_name: String,
     pub merge_state_status: String,
     pub merge_state_tone: String,
+    pub merge_state_explainer: Option<String>,
     pub mergeable: String,
     pub review_decision: String,
     pub review_decision_tone: String,
@@ -168,7 +199,9 @@ pub struct PrListPageModel {
     pub authenticated_hosts: String,
     pub row_count: usize,
     pub rows: Vec<PrListRowView>,
+    pub repo_options: Vec<RepoOptionView>,
     pub filters: FilterFormView,
+    pub sort_controls: Vec<SortControlView>,
     pub has_results_limit_warning: bool,
     pub flash: Option<FlashMessageView>,
     pub tabs: Vec<ListTabView>,
@@ -180,10 +213,11 @@ pub struct PrDetailPageModel {
     pub repo_name: String,
     pub repo_url: String,
     pub header: DetailHeaderView,
+    pub reviewer_statuses: Vec<ReviewerStatusView>,
     pub requested_reviewers: Vec<String>,
     pub reviewer_decisions: Vec<ReviewDecisionView>,
     pub checks: ChecksSummaryView,
-    pub body: String,
+    pub body_html: String,
     pub issue_comments: Vec<IssueCommentView>,
     pub reviews: Vec<PullRequestReviewView>,
     pub review_comments: Vec<ReviewCommentView>,
@@ -239,6 +273,19 @@ pub fn diagnostics_label(diagnostics: Option<&PreflightDiagnostics>) -> (String,
 }
 
 pub fn checks_view(summary: StatusChecksSummary) -> ChecksSummaryView {
+    let percentages = |count: usize| {
+        if summary.total == 0 {
+            0
+        } else {
+            ((count * 100) / summary.total).min(100)
+        }
+    };
+
+    let successful_pct = percentages(summary.successful);
+    let failed_pct = percentages(summary.failed);
+    let pending_pct = percentages(summary.pending);
+    let neutral_pct = percentages(summary.neutral);
+
     let headline = if summary.total == 0 {
         "No status checks".to_string()
     } else if summary.failed > 0 {
@@ -255,6 +302,10 @@ pub fn checks_view(summary: StatusChecksSummary) -> ChecksSummaryView {
         failed: summary.failed,
         pending: summary.pending,
         neutral: summary.neutral,
+        successful_pct,
+        failed_pct,
+        pending_pct,
+        neutral_pct,
         headline,
     }
 }
@@ -265,7 +316,7 @@ pub fn reviewer_decisions_or_none(values: Vec<ReviewerDecision>) -> Vec<ReviewDe
             reviewer: "none".to_string(),
             state: "NONE".to_string(),
             tone: super::helpers::review_decision_tone("NONE"),
-            submitted_at: "n/a".to_string(),
+            submitted_at: "N/A".to_string(),
             body: String::new(),
         }];
     }
@@ -280,7 +331,7 @@ pub fn reviewer_decisions_or_none(values: Vec<ReviewerDecision>) -> Vec<ReviewDe
                 reviewer: value.reviewer,
                 state,
                 tone,
-                submitted_at: value.submitted_at,
+                submitted_at: super::helpers::format_timestamp(&value.submitted_at),
                 body: value.body,
             }
         })

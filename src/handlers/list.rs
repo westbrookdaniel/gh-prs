@@ -14,12 +14,15 @@ pub async fn list_pull_requests(request: Request) -> Response {
 
     let query = SearchArgs::from_request(&request);
 
+    let available_repos = state.gh.accessible_repositories().await.unwrap_or_default();
+
     match state.gh.search_pull_requests(&query).await {
         Ok(items) => {
             let model = list_page_model(
                 state.startup_repo.as_ref(),
                 state.diagnostics.as_ref(),
                 &query,
+                available_repos,
                 items,
                 flash,
                 &request,
