@@ -76,7 +76,12 @@
         <article class="stack">
           <label for="reviewers-input">Add reviewers</label>
           <form method="post" action="{{ model.reviewers_post_path }}" class="stack inline-form">
-            <input id="reviewers-input" name="reviewers" type="text" placeholder="alice, team/backend" required />
+            <combobox-comp id="reviewers-input" input-name="reviewers" placeholder="Search reviewers..." empty-label="Select reviewers" source-selector="#reviewer-options-source"></combobox-comp>
+            <select id="reviewer-options-source" hidden multiple>
+              {% for reviewer in model.reviewer_statuses %}
+              <option value="{{ reviewer.reviewer }}">{{ reviewer.reviewer }}</option>
+              {% endfor %}
+            </select>
             <button type="submit" class="btn-neutral">Add Reviewers</button>
           </form>
         </article>

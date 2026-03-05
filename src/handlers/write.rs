@@ -158,10 +158,15 @@ pub async fn update_reviewers(request: Request) -> Response {
 
     let reviewers = form
         .reviewers
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
+        .into_iter()
+        .flat_map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|candidate| !candidate.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<String>>()
+        })
         .collect::<Vec<String>>();
 
     let result = state

@@ -72,7 +72,26 @@ class ComboboxComp extends HTMLElement {
     this.activeIndex = -1;
 
     this.render();
-    this.loadOptionsFromSibling();
+    this.initializeOptions();
+  }
+
+  initializeOptions() {
+    if (this.loadOptionsFromSibling()) {
+      return;
+    }
+
+    let attempts = 0;
+    const retry = () => {
+      if (this.loadOptionsFromSibling()) {
+        return;
+      }
+      attempts += 1;
+      if (attempts < 12) {
+        window.requestAnimationFrame(retry);
+      }
+    };
+
+    window.requestAnimationFrame(retry);
   }
 
   render() {
@@ -154,7 +173,7 @@ class ComboboxComp extends HTMLElement {
     }
 
     if (!(this.sourceSelect instanceof HTMLSelectElement)) {
-      return;
+      return false;
     }
 
     const optionEls = this.sourceSelect.querySelectorAll("option");
@@ -171,6 +190,7 @@ class ComboboxComp extends HTMLElement {
     this.syncSourceSelect();
     this.renderList();
     this.closePopover();
+    return true;
   }
 
   filteredOptions() {
@@ -378,7 +398,7 @@ class PrFilterState extends HTMLElement {
       }
     }
 
-    if (this.combo && typeof this.combo.getSelectedRepos === "function") {
+    if (this.combo && typeof this.combo.getSelectedValues === "function") {
       const repos = this.combo.getSelectedValues();
       if (repos.length > 0) {
         state.repo = repos;

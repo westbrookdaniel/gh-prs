@@ -15,7 +15,8 @@ pub struct ReviewForm {
 
 #[derive(Debug, Deserialize)]
 pub struct ReviewersForm {
-    pub reviewers: String,
+    #[serde(default)]
+    pub reviewers: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
