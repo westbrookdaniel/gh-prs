@@ -1,11 +1,10 @@
 use crate::gh::cache::{CachedOutput, cache_get, cache_invalidate_prefix, cache_set};
 use crate::gh::models::{
     MAX_SEARCH_LIMIT, PreflightDiagnostics, PullRequestConversation, PullRequestDetail,
-    PullRequestFile, PullRequestListItem, PullRequestReview, PullRequestReviewComment,
-    PullRequestSearchItem, PullRequestStatus, RepoContext, parse_issue_comments,
+    PullRequestFile, PullRequestReview, PullRequestReviewComment, PullRequestSearchItem,
+    PullRequestStatus, RepoContext, parse_issue_comments,
     parse_preflight_auth, parse_pull_request_detail, parse_pull_request_files,
-    parse_pull_request_list, parse_pull_request_review_comments, parse_pull_request_reviews,
-    parse_repo_context,
+    parse_pull_request_review_comments, parse_pull_request_reviews, parse_repo_context,
 };
 use crate::gh::{CommandClass, GhError, GhResult};
 use crate::search::SearchArgs;
@@ -472,51 +471,6 @@ impl GhClient {
 
         parse_repo_context(&result.stdout).map_err(|details| GhError::ParseFailure {
             class: CommandClass::ResolveRepo,
-            details,
-        })
-    }
-
-    pub async fn list_pull_requests(&self, repo: &str) -> GhResult<Vec<PullRequestListItem>> {
-        let repo = validate_repo_identifier(repo)?;
-        let cache_key = self.cache_key(&format!("pr|list|{repo}"));
-        let result = if let Some(cached) = cache_get(&cache_key) {
-            println!(
-                "[gh] class={} cache=hit",
-                CommandClass::PullRequestList.as_str()
-            );
-            CommandResult {
-                stdout: cached.stdout,
-                stderr: cached.stderr,
-                code: cached.code,
-            }
-        } else {
-            let computed = self
-                .run_raw_command(
-                    CommandClass::PullRequestList,
-                    vec![
-                        "pr".to_string(),
-                        "list".to_string(),
-                        "-R".to_string(),
-                        repo.clone(),
-                        "--state".to_string(),
-                        "all".to_string(),
-                        "-L".to_string(),
-                        "100".to_string(),
-                        "--json".to_string(),
-                        "number,title,state,isDraft,author,createdAt,updatedAt,url,reviewDecision,reviewRequests,comments".to_string(),
-                    ],
-                )
-                .await?;
-            cache_set(&cache_key, 90, CachedOutput::from_result(&computed));
-            println!(
-                "[gh] class={} cache=store",
-                CommandClass::PullRequestList.as_str()
-            );
-            computed
-        };
-
-        parse_pull_request_list(&result.stdout).map_err(|details| GhError::ParseFailure {
-            class: CommandClass::PullRequestList,
             details,
         })
     }
@@ -1472,44 +1426,6 @@ mod tests {
     }
 
     #[test]
-    fn list_command_uses_expected_arguments() {
-        let _guard = test_lock().lock().expect("test lock");
-        smol::block_on(async {
-            let runner = Arc::new(MockRunner::with_responses(vec![ok("[]")]));
-            let client = GhClient::with_runner(
-                Arc::clone(&runner) as Arc<dyn CommandRunner>,
-                DEFAULT_COMMAND_TIMEOUT,
-            );
-
-            let result = client.list_pull_requests("acme/widgets").await;
-            assert!(result.is_ok());
-
-            let commands = runner.seen_commands();
-            assert_eq!(commands.len(), 1);
-            let command = &commands[0];
-            assert_eq!(command.class, CommandClass::PullRequestList);
-            assert_eq!(
-                command.args,
-                vec![
-                    "pr",
-                    "list",
-                    "-R",
-                    "acme/widgets",
-                    "--state",
-                    "all",
-                    "-L",
-                    "100",
-                    "--json",
-                    "number,title,state,isDraft,author,createdAt,updatedAt,url,reviewDecision,reviewRequests,comments",
-                ]
-                .into_iter()
-                .map(str::to_string)
-                .collect::<Vec<String>>()
-            );
-        });
-    }
-
-    #[test]
     fn detail_path_runs_all_conversation_commands() {
         let _guard = test_lock().lock().expect("test lock");
         smol::block_on(async {
@@ -1622,7 +1538,7 @@ mod tests {
         smol::block_on(async {
             let runner = Arc::new(MockRunner::with_responses(vec![Err(
                 GhError::CommandTimeout {
-                    class: CommandClass::PullRequestList,
+                    class: CommandClass::PullRequestSearch,
                     timeout: Duration::from_secs(2),
                 },
             )]));
@@ -1631,11 +1547,11 @@ mod tests {
                 Duration::from_secs(2),
             );
 
-            let result = client.list_pull_requests("acme/widgets").await;
+            let result = client.search_pull_requests(&SearchArgs::default()).await;
             assert!(matches!(
                 result,
                 Err(GhError::CommandTimeout {
-                    class: CommandClass::PullRequestList,
+                    class: CommandClass::PullRequestSearch,
                     ..
                 })
             ));
@@ -1652,7 +1568,7 @@ mod tests {
                 DEFAULT_COMMAND_TIMEOUT,
             );
 
-            let bad_repo = client.list_pull_requests("not-valid").await;
+            let bad_repo = client.resolve_repo(Some("not-valid")).await;
             assert!(
                 matches!(bad_repo, Err(GhError::InvalidInput { field, .. }) if field == "repo")
             );

@@ -20,21 +20,6 @@ pub struct PreflightDiagnostics {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PullRequestListItem {
-    pub number: u64,
-    pub title: String,
-    pub state: String,
-    pub is_draft: bool,
-    pub author: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub url: String,
-    pub review_decision: Option<String>,
-    pub requested_reviewers: Vec<String>,
-    pub comment_count: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PullRequestSearchItem {
     pub repository_name_with_owner: String,
     pub number: u64,
@@ -256,27 +241,6 @@ struct UserRaw {
 }
 
 #[derive(Debug, Deserialize)]
-struct PullRequestListItemRaw {
-    number: u64,
-    title: String,
-    state: String,
-    #[serde(rename = "isDraft")]
-    is_draft: bool,
-    author: Option<UserRaw>,
-    #[serde(rename = "createdAt")]
-    created_at: String,
-    #[serde(rename = "updatedAt")]
-    updated_at: String,
-    url: String,
-    #[serde(rename = "reviewDecision")]
-    review_decision: Option<String>,
-    #[serde(rename = "reviewRequests", default)]
-    review_requests: Option<Value>,
-    #[serde(default)]
-    comments: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
 struct PullRequestDetailRaw {
     number: u64,
     title: String,
@@ -444,28 +408,6 @@ fn host_is_authenticated(value: &Value) -> bool {
     }
 
     state.contains("success") || state.contains("logged in")
-}
-
-pub fn parse_pull_request_list(json: &str) -> Result<Vec<PullRequestListItem>, String> {
-    let raw_items: Vec<PullRequestListItemRaw> =
-        serde_json::from_str(json).map_err(|err| err.to_string())?;
-    let mut items = Vec::with_capacity(raw_items.len());
-    for raw in raw_items {
-        items.push(PullRequestListItem {
-            number: raw.number,
-            title: raw.title,
-            state: raw.state,
-            is_draft: raw.is_draft,
-            author: extract_user(raw.author),
-            created_at: raw.created_at,
-            updated_at: raw.updated_at,
-            url: raw.url,
-            review_decision: raw.review_decision,
-            requested_reviewers: extract_requested_reviewers(raw.review_requests),
-            comment_count: extract_count_field(raw.comments),
-        });
-    }
-    Ok(items)
 }
 
 pub fn parse_pull_request_detail(json: &str) -> Result<PullRequestDetail, String> {
@@ -780,8 +722,8 @@ fn collect_nodes(value: &Value) -> Vec<&Value> {
 mod tests {
     use super::{
         parse_issue_comments, parse_preflight_auth, parse_pull_request_detail,
-        parse_pull_request_files, parse_pull_request_list, parse_pull_request_review_comments,
-        parse_pull_request_reviews, parse_repo_context,
+        parse_pull_request_files, parse_pull_request_review_comments, parse_pull_request_reviews,
+        parse_repo_context,
     };
 
     #[test]
@@ -827,35 +769,6 @@ mod tests {
 
         let hosts = parse_preflight_auth(json).expect("auth should parse");
         assert_eq!(hosts, vec!["github.com".to_string()]);
-    }
-
-    #[test]
-    fn parses_pull_request_list_with_review_requests() {
-        let json = r#"[
-          {
-            "number": 12,
-            "title": "Improve parser",
-            "state": "OPEN",
-            "isDraft": false,
-            "author": {"login": "alice"},
-            "createdAt": "2026-01-01T00:00:00Z",
-            "updatedAt": "2026-01-02T00:00:00Z",
-            "url": "https://example/pr/12",
-            "reviewDecision": "REVIEW_REQUIRED",
-            "reviewRequests": [
-              {"requestedReviewer": {"login": "bob"}},
-              {"requestedReviewer": {"name": "backend-team"}}
-            ],
-            "comments": {"totalCount": 3}
-          }
-        ]"#;
-
-        let items = parse_pull_request_list(json).expect("list should parse");
-        assert_eq!(items.len(), 1);
-        let item = &items[0];
-        assert_eq!(item.number, 12);
-        assert_eq!(item.requested_reviewers, vec!["backend-team", "bob"]);
-        assert_eq!(item.comment_count, 3);
     }
 
     #[test]
