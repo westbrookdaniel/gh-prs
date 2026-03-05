@@ -9,7 +9,7 @@ use crate::views::types::{
 };
 use ammonia::Builder;
 use chrono::{DateTime, Local};
-use pulldown_cmark::{Options, Parser, html};
+use pulldown_cmark::{html, Options, Parser};
 use std::collections::HashSet;
 
 pub fn clamp_flash(message: String) -> String {
@@ -277,16 +277,6 @@ pub fn merge_conversation_feed(
     feed.into_iter().map(|(_, item)| item).collect()
 }
 
-pub fn reviewer_text_only(statuses: Vec<ReviewerStatusView>) -> Vec<ReviewerStatusView> {
-    statuses
-        .into_iter()
-        .map(|mut status| {
-            status.body_html = String::new();
-            status
-        })
-        .collect()
-}
-
 fn sort_key_timestamp(value: &str) -> i64 {
     DateTime::parse_from_rfc3339(value)
         .map(|parsed| parsed.timestamp())
@@ -381,8 +371,6 @@ pub fn build_reviewer_statuses(
                 tone: review_decision_tone("REVIEW_REQUIRED"),
                 state_tooltip: review_state_tooltip("REVIEW_REQUIRED"),
                 submitted_at: "Pending".to_string(),
-                body_html: String::new(),
-                is_requested: true,
             },
         );
     }
@@ -396,8 +384,6 @@ pub fn build_reviewer_statuses(
                 tone: review_decision_tone(&decision.state),
                 state_tooltip: review_decision_tooltip(&decision.state),
                 submitted_at: format_timestamp(&decision.submitted_at),
-                body_html: String::new(),
-                is_requested: requested_reviewers.contains(&decision.reviewer),
             },
         );
     }
@@ -411,8 +397,6 @@ pub fn build_reviewer_statuses(
                 tone: review_state_tone(&review.state),
                 state_tooltip: review_state_tooltip(&review.state),
                 submitted_at: format_timestamp(&review.submitted_at),
-                body_html: String::new(),
-                is_requested: requested_reviewers.contains(&review.author),
             });
     }
 
@@ -598,11 +582,13 @@ fn parse_patch_lines(patch: Option<&str>) -> Vec<DiffLineView> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_list_tabs, diff_files_view, format_timestamp, markdown_to_html, parse_patch_lines,
+        build_list_tabs, diff_files_view, format_timestamp, markdown_to_html,
+        merge_conversation_feed, parse_patch_lines,
     };
     use crate::gh::models::PullRequestFile;
     use crate::gh::models::PullRequestStatus;
     use crate::search::SearchArgs;
+    use crate::views::types::{IssueCommentView, PullRequestReviewView, ReviewCommentView};
 
     #[test]
     fn query_for_status_preserves_filters() {
@@ -684,5 +670,39 @@ mod tests {
         let html = markdown_to_html("hello <script>alert(1)</script>");
         assert!(html.contains("hello"));
         assert!(!html.contains("script"));
+    }
+
+    #[test]
+    fn conversation_feed_orders_by_timestamp() {
+        let issue_comments = vec![IssueCommentView {
+            author: "a".to_string(),
+            body_html: "one".to_string(),
+            created_at: "2026-01-02T00:00:00Z".to_string(),
+            updated_at: "2026-01-02T00:00:00Z".to_string(),
+            url: "u1".to_string(),
+        }];
+        let reviews = vec![PullRequestReviewView {
+            author: "b".to_string(),
+            state: "APPROVED".to_string(),
+            tone: "state-approved".to_string(),
+            body_html: "two".to_string(),
+            submitted_at: "2026-01-01T00:00:00Z".to_string(),
+            url: "u2".to_string(),
+        }];
+        let review_comments = vec![ReviewCommentView {
+            author: "c".to_string(),
+            body_html: "three".to_string(),
+            path: "x.rs".to_string(),
+            line_label: "line 1".to_string(),
+            created_at: "2026-01-03T00:00:00Z".to_string(),
+            updated_at: "2026-01-03T00:00:00Z".to_string(),
+            url: "u3".to_string(),
+        }];
+
+        let feed = merge_conversation_feed(issue_comments, reviews, review_comments);
+        assert_eq!(feed.len(), 3);
+        assert!(feed[0].kind_label.starts_with("Review"));
+        assert_eq!(feed[1].kind_label, "Comment");
+        assert_eq!(feed[2].kind_label, "Review Comment");
     }
 }

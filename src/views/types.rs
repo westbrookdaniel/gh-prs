@@ -1,4 +1,4 @@
-use crate::gh::models::{PreflightDiagnostics, RepoContext, StatusCheckJob, StatusChecksSummary};
+use crate::gh::models::{StatusCheckJob, StatusChecksSummary};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlashMessageView {
@@ -85,8 +85,6 @@ pub struct ReviewerStatusView {
     pub tone: String,
     pub state_tooltip: String,
     pub submitted_at: String,
-    pub body_html: String,
-    pub is_requested: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,9 +212,6 @@ pub struct DiffTreeItemView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrListPageModel {
     pub page_title: String,
-    pub source_label: String,
-    pub gh_version: String,
-    pub authenticated_hosts: String,
     pub row_count: usize,
     pub rows: Vec<PrListRowView>,
     pub repo_options: Vec<RepoOptionView>,
@@ -270,27 +265,6 @@ pub struct ErrorPageModel {
     pub message: String,
     pub remediation: String,
     pub details: Option<String>,
-}
-
-pub fn source_label(repo: Option<&RepoContext>) -> String {
-    repo.map(|ctx| {
-        format!(
-            "Scoped to your account; startup repo: {}",
-            ctx.name_with_owner
-        )
-    })
-    .unwrap_or_else(|| "Scoped to your account".to_string())
-}
-
-pub fn diagnostics_label(diagnostics: Option<&PreflightDiagnostics>) -> (String, String) {
-    diagnostics
-        .map(|value| {
-            (
-                value.gh_version.clone(),
-                value.authenticated_hosts.join(", "),
-            )
-        })
-        .unwrap_or_else(|| ("unknown".to_string(), "none".to_string()))
 }
 
 pub fn checks_view(summary: StatusChecksSummary) -> ChecksSummaryView {

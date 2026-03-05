@@ -61,10 +61,12 @@ class ThemeToggle extends HTMLElement {
   }
 }
 
-class RepoMultiSelect extends HTMLElement {
+class ComboboxComp extends HTMLElement {
   connectedCallback() {
     this.inputName = this.getAttribute("input-name") || "repo";
+    this.sourceSelector = this.getAttribute("source-selector") || "";
     this.placeholder = this.getAttribute("placeholder") || "Search repos...";
+    this.emptyLabel = this.getAttribute("empty-label") || "All options";
     this.options = [];
     this.selected = new Set();
     this.activeIndex = -1;
@@ -74,10 +76,10 @@ class RepoMultiSelect extends HTMLElement {
   }
 
   render() {
-    this.classList.add("repo-multiselect");
+    this.classList.add("repo-multiselect", "combobox-comp");
     this.innerHTML = `
       <button type="button" class="repo-popover-trigger" aria-expanded="false">
-        <span class="repo-popover-label" data-trigger-label>All repos</span>
+        <span class="repo-popover-label" data-trigger-label>${this.emptyLabel}</span>
         <span aria-hidden="true">▾</span>
       </button>
       <div class="repo-popover" hidden>
@@ -92,11 +94,12 @@ class RepoMultiSelect extends HTMLElement {
 
     this.trigger = this.querySelector(".repo-popover-trigger");
     this.triggerLabel = this.querySelector("[data-trigger-label]");
-    this.popover = this.querySelector(".repo-popover");
+    this.popoverEl = this.querySelector(".repo-popover");
     this.input = this.querySelector(".repo-combobox-input");
     this.list = this.querySelector(".repo-combobox-list");
     this.selectedContainer = this.querySelector("[data-selected]");
-    this.hiddenInputs = this.querySelector(".repo-hidden-inputs");
+
+    this.sourceSelect = null;
 
     this.trigger.addEventListener("click", () => {
       this.togglePopover();
@@ -117,18 +120,18 @@ class RepoMultiSelect extends HTMLElement {
   }
 
   openPopover() {
-    this.popover.hidden = false;
+    this.popoverEl.hidden = false;
     this.trigger.setAttribute("aria-expanded", "true");
   }
 
   closePopover() {
-    this.popover.hidden = true;
+    this.popoverEl.hidden = true;
     this.list.hidden = true;
     this.trigger.setAttribute("aria-expanded", "false");
   }
 
   togglePopover() {
-    if (this.popover.hidden) {
+    if (this.popoverEl.hidden) {
       this.openPopover();
       this.renderList();
       this.input.focus();
@@ -138,13 +141,23 @@ class RepoMultiSelect extends HTMLElement {
   }
 
   loadOptionsFromSibling() {
-    const root = this.closest("form") || this.parentElement;
-    const source = root?.querySelector(".repo-option-source");
-    if (!source) {
+    if (this.sourceSelector) {
+      this.sourceSelect = document.querySelector(this.sourceSelector);
+    }
+
+    if (!(this.sourceSelect instanceof HTMLSelectElement)) {
+      const root = this.closest("form") || this.parentElement;
+      const fallback = root?.querySelector(".repo-option-source");
+      if (fallback instanceof HTMLSelectElement) {
+        this.sourceSelect = fallback;
+      }
+    }
+
+    if (!(this.sourceSelect instanceof HTMLSelectElement)) {
       return;
     }
 
-    const optionEls = source.querySelectorAll("option");
+    const optionEls = this.sourceSelect.querySelectorAll("option");
     this.options = Array.from(optionEls)
       .map((option) => option.value)
       .filter(Boolean);
@@ -155,7 +168,7 @@ class RepoMultiSelect extends HTMLElement {
     );
 
     this.renderSelected();
-    this.syncHiddenInputs();
+    this.syncSourceSelect();
     this.renderList();
     this.closePopover();
   }
@@ -257,7 +270,7 @@ class RepoMultiSelect extends HTMLElement {
     }
 
     this.renderSelected();
-    this.syncHiddenInputs();
+    this.syncSourceSelect();
     this.renderList();
   }
 
@@ -266,9 +279,9 @@ class RepoMultiSelect extends HTMLElement {
     if (this.selected.size === 0) {
       const empty = document.createElement("span");
       empty.className = "repo-selected-empty";
-      empty.textContent = "All accessible repos";
+      empty.textContent = this.emptyLabel;
       this.selectedContainer.appendChild(empty);
-      this.triggerLabel.textContent = "All repos";
+      this.triggerLabel.textContent = this.emptyLabel;
       return;
     }
 
@@ -291,27 +304,30 @@ class RepoMultiSelect extends HTMLElement {
       });
   }
 
-  syncHiddenInputs() {
-    this.hiddenInputs.innerHTML = "";
-    Array.from(this.selected)
-      .sort()
-      .forEach((repo) => {
-        const input = document.createElement("input");
-        input.type = "hidden";
-        input.name = this.inputName;
-        input.value = repo;
-        this.hiddenInputs.appendChild(input);
-      });
+  syncSourceSelect() {
+    if (!(this.sourceSelect instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    this.sourceSelect.name = this.inputName;
+    this.sourceSelect.querySelectorAll("option").forEach((option) => {
+      option.selected = this.selected.has(option.value);
+    });
   }
 
-  getSelectedRepos() {
+  getSelectedValues() {
     return Array.from(this.selected);
   }
 
-  setSelectedRepos(repos) {
-    this.selected = new Set(repos);
+  setSelectedValues(values) {
+    const allowed = new Set(this.options);
+    const next = Array.isArray(values)
+      ? values.filter((value) => typeof value === "string" && allowed.has(value))
+      : [];
+
+    this.selected = new Set(next);
     this.renderSelected();
-    this.syncHiddenInputs();
+    this.syncSourceSelect();
     this.renderList();
     this.closePopover();
   }
@@ -363,7 +379,7 @@ class PrFilterState extends HTMLElement {
     }
 
     if (this.combo && typeof this.combo.getSelectedRepos === "function") {
-      const repos = this.combo.getSelectedRepos();
+      const repos = this.combo.getSelectedValues();
       if (repos.length > 0) {
         state.repo = repos;
       }
@@ -410,9 +426,9 @@ class PrFilterState extends HTMLElement {
     if (
       Array.isArray(state.repo) &&
       this.combo &&
-      typeof this.combo.setSelectedRepos === "function"
+      typeof this.combo.setSelectedValues === "function"
     ) {
-      this.combo.setSelectedRepos(state.repo);
+      this.combo.setSelectedValues(state.repo);
     }
   }
 
@@ -502,7 +518,7 @@ class PrFilterState extends HTMLElement {
 }
 
 customElements.define("theme-toggle", ThemeToggle);
-customElements.define("repo-multiselect", RepoMultiSelect);
+customElements.define("combobox-comp", ComboboxComp);
 customElements.define("pr-filter-state", PrFilterState);
 
 document.addEventListener("error", (event) => {

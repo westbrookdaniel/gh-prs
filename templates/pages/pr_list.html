@@ -14,8 +14,8 @@
 
       <form id="pr-filter-form" method="get" action="/prs" class="filter-form">
         <label for="repo-combobox">Repositories</label>
-        <repo-multiselect id="repo-combobox" input-name="repo" placeholder="Search repos..."></repo-multiselect>
-        <select class="repo-option-source" hidden multiple>
+        <combobox-comp id="repo-combobox" source-selector="#repo-options-source" input-name="repo" placeholder="Search repos..." empty-label="All repos"></combobox-comp>
+        <select id="repo-options-source" class="repo-option-source" hidden multiple>
           {% for option in model.repo_options %}
           <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}></option>
           {% endfor %}

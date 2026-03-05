@@ -1,7 +1,6 @@
 use crate::gh::models::{
-    DEFAULT_SEARCH_LIMIT, IssueComment, PreflightDiagnostics, PullRequestConversation,
-    PullRequestFile, PullRequestReview, PullRequestReviewComment, PullRequestSearchItem,
-    RepoContext,
+    IssueComment, PullRequestConversation, PullRequestFile, PullRequestReview,
+    PullRequestReviewComment, PullRequestSearchItem, RepoContext, DEFAULT_SEARCH_LIMIT,
 };
 use crate::search::SearchArgs;
 use crate::views::helpers::{
@@ -10,17 +9,17 @@ use crate::views::helpers::{
     diff_files_view, format_timestamp, markdown_to_html, merge_conversation_feed,
     merge_state_explainer, merge_state_tone, merge_state_tooltip, pr_state_tone, pr_state_tooltip,
     repo_action_path, review_decision_tone, review_decision_tooltip, review_state_tone,
-    reviewer_text_only, sort_controls, state_label,
+    sort_controls, state_label,
 };
 use crate::views::types::{
-    DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel,
-    PrDetailPageModel, PrListPageModel, PrListRowView, PullRequestReviewView, RepoOptionView,
-    ReviewCommentView, checks_view, diagnostics_label, source_label,
+    checks_view, DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView,
+    PrChangesPageModel, PrDetailPageModel, PrListPageModel, PrListRowView, PullRequestReviewView,
+    RepoOptionView, ReviewCommentView,
 };
 
 pub fn list_page_model(
-    repo: Option<&RepoContext>,
-    diagnostics: Option<&PreflightDiagnostics>,
+    _repo: Option<&RepoContext>,
+    _diagnostics: Option<&crate::gh::models::PreflightDiagnostics>,
     query: &SearchArgs,
     available_repos: Vec<String>,
     items: Vec<PullRequestSearchItem>,
@@ -56,13 +55,8 @@ pub fn list_page_model(
         })
         .collect();
 
-    let (gh_version, authenticated_hosts) = diagnostics_label(diagnostics);
-
     PrListPageModel {
         page_title: "Pull Requests Across Your Repos".to_string(),
-        source_label: source_label(repo),
-        gh_version,
-        authenticated_hosts,
         row_count: rows.len(),
         repo_options: available_repos
             .iter()
@@ -113,7 +107,6 @@ pub fn detail_page_model(
         &detail.latest_reviewer_decisions,
         &reviews,
     );
-    let reviewer_statuses = reviewer_text_only(reviewer_statuses);
     let mapped_issue_comments = map_issue_comments(issue_comments);
     let mapped_reviews = map_reviews(reviews);
     let mapped_review_comments = map_review_comments(review_comments);
