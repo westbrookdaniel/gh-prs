@@ -8,13 +8,9 @@
     <div class="detail-hero-top">
       <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
       <div class="hero-badges">
-        <span class="badge {{ model.header.state_tone }}">{{ model.header.state_label }}</span>
-        {% if model.header.is_draft %}<span class="badge state-draft">DRAFT</span>{% endif %}
-        {% if let Some(behind_hint) = model.header.merge_state_explainer %}
-        <span class="badge {{ model.header.merge_state_tone }}" title="{{ behind_hint }}">{{ model.header.merge_state_status }}</span>
-        {% else %}
-        <span class="badge {{ model.header.merge_state_tone }}">{{ model.header.merge_state_status }}</span>
-        {% endif %}
+        <span class="badge {{ model.header.state_tone }}" title="{{ model.header.state_tooltip }}">{{ model.header.state_label }}</span>
+        {% if model.header.is_draft %}<span class="badge state-draft" title="{{ model.header.draft_tooltip }}">DRAFT</span>{% endif %}
+        <span class="badge {{ model.header.merge_state_tone }}" title="{{ model.header.merge_state_tooltip }}">{{ model.header.merge_state_status }}</span>
       </div>
     </div>
     <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
@@ -40,7 +36,7 @@
         {% for item in model.tree_items %}
         <li class="file-node-leaf">
           <button type="button" class="file-leaf-link" data-target="{{ item.id }}">
-            <span class="file-leaf-name">{{ item.filename }}</span>
+            <span class="file-leaf-name truncate-middle" title="{{ item.filename }}">{{ item.filename }}</span>
             <span class="meta">+{{ item.additions }} -{{ item.deletions }}</span>
           </button>
         </li>
@@ -57,12 +53,12 @@
       <section id="{{ file.id }}" class="diff-file-section">
         <details class="diff-file-accordion" {% if !file.is_collapsed %}open{% endif %}>
           <summary class="diff-file-summary">
-            <span class="diff-file-name">{{ file.filename }}</span>
-            <span class="meta"><span class="badge">{{ file.status }}</span> · +{{ file.additions }} -{{ file.deletions }} · {{ file.changes }} changes</span>
+            <span class="diff-file-name truncate-middle" title="{{ file.filename }}">{{ file.filename }}</span>
+            <span class="meta"><span class="badge" title="File status">{{ file.status }}</span> · +{{ file.additions }} -{{ file.deletions }} · {{ file.changes }} changes</span>
           </summary>
 
           {% if let Some(previous) = file.previous_filename %}
-          <p class="meta">renamed from {{ previous }}</p>
+          <p class="meta">renamed from <span class="truncate-middle" title="{{ previous }}">{{ previous }}</span></p>
           {% endif %}
 
           {% if file.has_patch %}

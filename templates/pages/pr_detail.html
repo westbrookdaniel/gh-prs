@@ -8,14 +8,10 @@
     <div class="detail-hero-top">
       <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
       <div class="hero-badges">
-        <span class="badge {{ model.header.state_tone }}">{{ model.header.state_label }}</span>
-        {% if model.header.is_draft %}<span class="badge state-draft">DRAFT</span>{% endif %}
-        <span class="badge {{ model.header.review_decision_tone }}">{% if model.header.review_decision.is_empty() %}NONE{% else %}{{ model.header.review_decision }}{% endif %}</span>
-        {% if let Some(behind_hint) = model.header.merge_state_explainer %}
-        <span class="badge {{ model.header.merge_state_tone }}" title="{{ behind_hint }}">{{ model.header.merge_state_status }}</span>
-        {% else %}
-        <span class="badge {{ model.header.merge_state_tone }}">{{ model.header.merge_state_status }}</span>
-        {% endif %}
+        <span class="badge {{ model.header.state_tone }}" title="{{ model.header.state_tooltip }}">{{ model.header.state_label }}</span>
+        {% if model.header.is_draft %}<span class="badge state-draft" title="{{ model.header.draft_tooltip }}">DRAFT</span>{% endif %}
+        <span class="badge {{ model.header.review_decision_tone }}" title="{{ model.header.review_decision_tooltip }}">{% if model.header.review_decision.is_empty() %}NONE{% else %}{{ model.header.review_decision }}{% endif %}</span>
+        <span class="badge {{ model.header.merge_state_tone }}" title="{{ model.header.merge_state_tooltip }}">{{ model.header.merge_state_status }}</span>
       </div>
     </div>
     <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
@@ -37,38 +33,6 @@
   </section>
 
   <section class="pr-detail-layout">
-    <aside class="reviewer-sidebar">
-      <div class="reviewer-stack">
-        <h2 class="sr-only">Reviewers</h2>
-        {% for reviewer in model.reviewer_statuses %}
-        <article class="reviewer-item">
-          <p class="reviewer-name"><strong>{{ reviewer.reviewer }}</strong></p>
-          <p class="meta"><span class="badge {{ reviewer.tone }}">{{ reviewer.state }}</span></p>
-          <p class="meta">{{ reviewer.submitted_at }}</p>
-          {% if !reviewer.body_html.is_empty() %}
-          <div class="markdown-body">{{ reviewer.body_html|safe }}</div>
-          {% endif %}
-        </article>
-        {% endfor %}
-      </div>
-
-      <section class="checks-panel">
-        <p class="meta checks-headline">{{ model.checks.headline }}</p>
-        <div class="checks-progress" role="img" aria-label="Status checks progress">
-          <span class="checks-segment checks-pass" style="width: {{ model.checks.successful_pct }}%"></span>
-          <span class="checks-segment checks-fail" style="width: {{ model.checks.failed_pct }}%"></span>
-          <span class="checks-segment checks-pending" style="width: {{ model.checks.pending_pct }}%"></span>
-          <span class="checks-segment checks-neutral" style="width: {{ model.checks.neutral_pct }}%"></span>
-        </div>
-        <ul class="checks-legend">
-          <li><span class="checks-dot checks-pass"></span>Passing {{ model.checks.successful }}</li>
-          <li><span class="checks-dot checks-fail"></span>Failing {{ model.checks.failed }}</li>
-          <li><span class="checks-dot checks-pending"></span>Pending {{ model.checks.pending }}</li>
-          <li><span class="checks-dot checks-neutral"></span>Neutral {{ model.checks.neutral }}</li>
-        </ul>
-      </section>
-    </aside>
-
     <section class="pr-main-flow">
       {% if model.body_html.is_empty() %}
       <p class="empty">No PR description.</p>
@@ -112,6 +76,45 @@
         </article>
       </section>
     </section>
+
+    <aside class="reviewer-sidebar">
+      <div class="reviewer-stack">
+        <h2 class="sr-only">Reviewers</h2>
+        {% if model.reviewer_statuses.is_empty() %}
+        <p class="meta">No reviewers</p>
+        {% else %}
+        {% for reviewer in model.reviewer_statuses %}
+        <article class="reviewer-item">
+          <p class="reviewer-name"><strong>{{ reviewer.reviewer }}</strong></p>
+          <p class="meta"><span class="badge {{ reviewer.tone }}" title="{{ reviewer.state_tooltip }}">{{ reviewer.state }}</span></p>
+          <p class="meta">{{ reviewer.submitted_at }}</p>
+          {% if !reviewer.body_html.is_empty() %}
+          <div class="markdown-body">{{ reviewer.body_html|safe }}</div>
+          {% endif %}
+        </article>
+        {% endfor %}
+        {% endif %}
+      </div>
+
+      <section class="checks-panel">
+        <p class="meta checks-headline">{{ model.checks.headline }}</p>
+        <div class="checks-progress" role="img" aria-label="Status checks progress">
+          <span class="checks-segment checks-pass" style="width: {{ model.checks.successful_pct }}%"></span>
+          <span class="checks-segment checks-fail" style="width: {{ model.checks.failed_pct }}%"></span>
+          <span class="checks-segment checks-pending" style="width: {{ model.checks.pending_pct }}%"></span>
+          <span class="checks-segment checks-neutral" style="width: {{ model.checks.neutral_pct }}%"></span>
+        </div>
+        <ul class="checks-job-list">
+          {% for job in model.checks.jobs %}
+          <li>
+            <img src="{{ job.icon_src }}" alt="" aria-hidden="true" class="check-icon {{ job.tone }}" title="{{ job.tooltip }}" />
+            <span class="truncate-middle" title="{{ job.name }}">{{ job.name }}</span>
+            <span class="badge {{ job.tone }}" title="{{ job.tooltip }}">{{ job.state }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+    </aside>
   </section>
 </main>
 {% endblock %}

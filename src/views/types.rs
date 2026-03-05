@@ -1,4 +1,4 @@
-use crate::gh::models::{PreflightDiagnostics, RepoContext, ReviewerDecision, StatusChecksSummary};
+use crate::gh::models::{PreflightDiagnostics, RepoContext, StatusCheckJob, StatusChecksSummary};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlashMessageView {
@@ -30,8 +30,10 @@ pub struct PrListRowView {
     pub title: String,
     pub state_label: String,
     pub state_tone: String,
+    pub state_tooltip: String,
     pub author: String,
     pub author_avatar_url: String,
+    pub author_avatar_style: String,
     pub author_initial: String,
     pub updated_at: String,
     pub comment_count: usize,
@@ -76,19 +78,11 @@ pub struct DetailTabView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReviewDecisionView {
-    pub reviewer: String,
-    pub state: String,
-    pub tone: String,
-    pub submitted_at: String,
-    pub body: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewerStatusView {
     pub reviewer: String,
     pub state: String,
     pub tone: String,
+    pub state_tooltip: String,
     pub submitted_at: String,
     pub body_html: String,
     pub is_requested: bool,
@@ -136,6 +130,16 @@ pub struct ChecksSummaryView {
     pub pending_pct: usize,
     pub neutral_pct: usize,
     pub headline: String,
+    pub jobs: Vec<CheckJobView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckJobView {
+    pub name: String,
+    pub state: String,
+    pub tone: String,
+    pub icon_src: String,
+    pub tooltip: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,8 +148,10 @@ pub struct DetailHeaderView {
     pub title: String,
     pub state_label: String,
     pub state_tone: String,
+    pub state_tooltip: String,
     pub is_draft: bool,
     pub draft_label: String,
+    pub draft_tooltip: String,
     pub author: String,
     pub created_at: String,
     pub updated_at: String,
@@ -154,10 +160,12 @@ pub struct DetailHeaderView {
     pub head_ref_name: String,
     pub merge_state_status: String,
     pub merge_state_tone: String,
+    pub merge_state_tooltip: String,
     pub merge_state_explainer: Option<String>,
     pub mergeable: String,
     pub review_decision: String,
     pub review_decision_tone: String,
+    pub review_decision_tooltip: String,
     pub commit_count: usize,
     pub file_count: usize,
 }
@@ -214,8 +222,6 @@ pub struct PrDetailPageModel {
     pub repo_url: String,
     pub header: DetailHeaderView,
     pub reviewer_statuses: Vec<ReviewerStatusView>,
-    pub requested_reviewers: Vec<String>,
-    pub reviewer_decisions: Vec<ReviewDecisionView>,
     pub checks: ChecksSummaryView,
     pub body_html: String,
     pub issue_comments: Vec<IssueCommentView>,
@@ -307,32 +313,43 @@ pub fn checks_view(summary: StatusChecksSummary) -> ChecksSummaryView {
         pending_pct,
         neutral_pct,
         headline,
+        jobs: check_jobs_view(summary.jobs),
     }
 }
 
-pub fn reviewer_decisions_or_none(values: Vec<ReviewerDecision>) -> Vec<ReviewDecisionView> {
-    if values.is_empty() {
-        return vec![ReviewDecisionView {
-            reviewer: "none".to_string(),
-            state: "NONE".to_string(),
-            tone: super::helpers::review_decision_tone("NONE"),
-            submitted_at: "N/A".to_string(),
-            body: String::new(),
-        }];
-    }
+fn check_jobs_view(jobs: Vec<StatusCheckJob>) -> Vec<CheckJobView> {
+    jobs.into_iter()
+        .map(|job| {
+            let (tone, icon_href) = match job.state.as_str() {
+                "SUCCESS" => (
+                    "state-approved".to_string(),
+                    "/assets/icons/check-circle.svg".to_string(),
+                ),
+                "FAILED" => (
+                    "state-conflict".to_string(),
+                    "/assets/icons/x-circle.svg".to_string(),
+                ),
+                "PENDING" => (
+                    "state-open".to_string(),
+                    "/assets/icons/clock.svg".to_string(),
+                ),
+                _ => (
+                    "state-neutral".to_string(),
+                    "/assets/icons/minus-circle.svg".to_string(),
+                ),
+            };
 
-    values
-        .into_iter()
-        .map(|value| {
-            let state = value.state;
-            let tone = super::helpers::review_decision_tone(&state);
-
-            ReviewDecisionView {
-                reviewer: value.reviewer,
-                state,
-                tone,
-                submitted_at: super::helpers::format_timestamp(&value.submitted_at),
-                body: value.body,
+            CheckJobView {
+                name: job.name,
+                state: job.state,
+                tone: tone.clone(),
+                icon_src: icon_href,
+                tooltip: match tone.as_str() {
+                    "state-approved" => "Check passed".to_string(),
+                    "state-conflict" => "Check failed".to_string(),
+                    "state-open" => "Check pending".to_string(),
+                    _ => "Check neutral".to_string(),
+                },
             }
         })
         .collect()

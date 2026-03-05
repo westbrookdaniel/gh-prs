@@ -4,16 +4,8 @@
 
 {% block content %}
 <main class="page page-list">
-  <section class="panel page-header list-hero">
-    <div>
-      <h1 class="page-title">Pull Requests</h1>
-      <p class="meta">{{ model.source_label }} · gh: <strong>{{ model.gh_version }}</strong> · hosts: <strong>{{ model.authenticated_hosts }}</strong></p>
-    </div>
-    <p class="meta count-pill">{{ model.row_count }} results</p>
-  </section>
-
   {% if let Some(flash) = model.flash %}
-  <section class="panel flash flash-{{ flash.kind }}">{{ flash.message }}</section>
+  <section class="flash flash-{{ flash.kind }}">{{ flash.message }}</section>
   {% endif %}
 
   <section class="list-layout">
@@ -55,11 +47,14 @@
 
     <section class="panel list-pane">
       <header class="section-head list-pane-head">
-        <nav class="tab-strip tab-strip-inline" aria-label="Pull request states">
-          {% for tab in model.tabs %}
-          <a class="tab-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
-          {% endfor %}
-        </nav>
+        <div class="list-pane-top-row">
+          <nav class="tab-strip tab-strip-inline" aria-label="Pull request states">
+            {% for tab in model.tabs %}
+            <a class="tab-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
+            {% endfor %}
+          </nav>
+          <p class="meta count-pill count-pill-compact">{{ model.row_count }} results</p>
+        </div>
 
         <div class="sort-strip" aria-label="Sort pull requests">
           {% for sort in model.sort_controls %}
@@ -85,7 +80,7 @@
         <li class="pr-item">
           <article>
             <div class="pr-item-top">
-              <div class="pr-author-avatar" aria-hidden="true">
+              <div class="pr-author-avatar" aria-hidden="true" style="{{ row.author_avatar_style }}">
                 {% if row.author_avatar_url.is_empty() %}
                 <span class="avatar-fallback">{{ row.author_initial }}</span>
                 {% else %}
@@ -95,7 +90,7 @@
               <div class="pr-item-main">
                 <div class="pr-item-headline">
                   <p class="meta repo-meta">{{ row.repo_name_with_owner }}</p>
-                  <span class="badge {{ row.state_tone }}">{{ row.state_label }}</span>
+                  <span class="badge {{ row.state_tone }}" title="{{ row.state_tooltip }}">{{ row.state_label }}</span>
                 </div>
                 <h3 class="pr-title"><a href="{{ row.detail_path }}">#{{ row.number }} · {{ row.title }}</a></h3>
                 <p class="meta pr-item-meta">author: <strong>{{ row.author }}</strong> · comments: <strong>{{ row.comment_count }}</strong> · updated: {{ row.updated_at }}</p>

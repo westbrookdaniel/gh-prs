@@ -7,7 +7,7 @@ use crate::views::types::{
     SortControlView,
 };
 use ammonia::Builder;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use pulldown_cmark::{Options, Parser, html};
 use std::collections::HashSet;
 
@@ -36,6 +36,22 @@ pub fn pr_state_tone(state: &str, is_draft: bool) -> String {
     }
 }
 
+pub fn pr_state_tooltip(state: &str, is_draft: bool) -> String {
+    if is_draft {
+        return "Draft pull request; not ready to merge".to_string();
+    }
+
+    match state.trim().to_ascii_uppercase().as_str() {
+        "OPEN" => "Open pull request".to_string(),
+        "MERGED" => "Pull request merged".to_string(),
+        "CLOSED" => "Pull request closed without merge".to_string(),
+        value if value.contains("DIRTY") => {
+            "Merge is blocked by conflicts with base branch".to_string()
+        }
+        _ => "Pull request state".to_string(),
+    }
+}
+
 pub fn review_decision_tone(value: &str) -> String {
     match value.trim().to_ascii_uppercase().as_str() {
         "APPROVED" => "state-approved".to_string(),
@@ -46,11 +62,25 @@ pub fn review_decision_tone(value: &str) -> String {
     }
 }
 
+pub fn review_decision_tooltip(value: &str) -> String {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "APPROVED" => "Required reviews approved".to_string(),
+        "CHANGES_REQUESTED" => "Changes requested by at least one reviewer".to_string(),
+        "REVIEW_REQUIRED" => "A review is still required".to_string(),
+        "NONE" | "" => "No review decision yet".to_string(),
+        _ => "Review decision state".to_string(),
+    }
+}
+
 pub fn merge_state_tone(merge_state_status: &str, mergeable: &str) -> String {
     let merge_state = merge_state_status.trim().to_ascii_uppercase();
     let mergeable = mergeable.trim().to_ascii_uppercase();
 
-    if merge_state.contains("CONFLICT") || mergeable.contains("CONFLICT") {
+    if merge_state.contains("CONFLICT")
+        || merge_state == "DIRTY"
+        || merge_state == "BLOCKED"
+        || mergeable.contains("CONFLICT")
+    {
         return "state-conflict".to_string();
     }
 
@@ -59,6 +89,27 @@ pub fn merge_state_tone(merge_state_status: &str, mergeable: &str) -> String {
     }
 
     "state-neutral".to_string()
+}
+
+pub fn merge_state_tooltip(merge_state_status: &str, mergeable: &str) -> String {
+    let merge_state = merge_state_status.trim().to_ascii_uppercase();
+    let mergeable = mergeable.trim().to_ascii_uppercase();
+
+    if merge_state.contains("CONFLICT")
+        || merge_state == "DIRTY"
+        || merge_state == "BLOCKED"
+        || mergeable.contains("CONFLICT")
+    {
+        return "Merge conflicts detected".to_string();
+    }
+    if merge_state == "CLEAN" || mergeable == "MERGEABLE" {
+        return "Ready to merge".to_string();
+    }
+    if merge_state == "BEHIND" {
+        return "Branch is behind base and may need update".to_string();
+    }
+
+    "Merge status".to_string()
 }
 
 pub fn review_state_tone(state: &str) -> String {
@@ -70,6 +121,16 @@ pub fn review_state_tone(state: &str) -> String {
     }
 }
 
+pub fn review_state_tooltip(state: &str) -> String {
+    match state.trim().to_ascii_uppercase().as_str() {
+        "APPROVED" => "Reviewer approved".to_string(),
+        "CHANGES_REQUESTED" => "Reviewer requested changes".to_string(),
+        "COMMENTED" => "Reviewer left comments".to_string(),
+        "REVIEW_REQUIRED" => "Review requested".to_string(),
+        _ => "Review state".to_string(),
+    }
+}
+
 pub fn format_timestamp(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -78,8 +139,8 @@ pub fn format_timestamp(value: &str) -> String {
 
     if let Ok(parsed) = DateTime::parse_from_rfc3339(trimmed) {
         return parsed
-            .with_timezone(&Utc)
-            .format("%b %-d, %Y at %-I:%M %p UTC")
+            .with_timezone(&Local)
+            .format("%b %-d, %Y at %-I:%M %p")
             .to_string();
     }
 
@@ -167,6 +228,21 @@ pub fn author_initial(author: &str) -> String {
         .unwrap_or_else(|| "?".to_string())
 }
 
+pub fn avatar_style_from_author(author: &str) -> String {
+    let mut hash = 0u32;
+    for byte in author.as_bytes() {
+        hash = hash.wrapping_mul(31).wrapping_add(*byte as u32);
+    }
+
+    let hue = (hash % 360) as i32;
+    let saturation = 38 + ((hash / 360) % 22) as i32;
+    let lightness = 40 + ((hash / 8192) % 18) as i32;
+
+    format!(
+        "--avatar-bg: hsl({hue}deg {saturation}% {lightness}%); --avatar-fg: hsl({hue}deg 28% 95%);"
+    )
+}
+
 pub fn sort_controls(query: &SearchArgs) -> Vec<SortControlView> {
     let specs = [
         (PullRequestSort::Updated, "Updated"),
@@ -230,6 +306,7 @@ pub fn build_reviewer_statuses(
                 reviewer: reviewer.clone(),
                 state: "REVIEW_REQUIRED".to_string(),
                 tone: review_decision_tone("REVIEW_REQUIRED"),
+                state_tooltip: review_state_tooltip("REVIEW_REQUIRED"),
                 submitted_at: "Pending".to_string(),
                 body_html: String::new(),
                 is_requested: true,
@@ -244,6 +321,7 @@ pub fn build_reviewer_statuses(
                 reviewer: decision.reviewer.clone(),
                 state: decision.state.clone(),
                 tone: review_decision_tone(&decision.state),
+                state_tooltip: review_decision_tooltip(&decision.state),
                 submitted_at: format_timestamp(&decision.submitted_at),
                 body_html: markdown_to_html(&decision.body),
                 is_requested: requested_reviewers.contains(&decision.reviewer),
@@ -258,6 +336,7 @@ pub fn build_reviewer_statuses(
                 reviewer: review.author.clone(),
                 state: review.state.clone(),
                 tone: review_state_tone(&review.state),
+                state_tooltip: review_state_tooltip(&review.state),
                 submitted_at: format_timestamp(&review.submitted_at),
                 body_html: markdown_to_html(&review.body),
                 is_requested: requested_reviewers.contains(&review.author),
@@ -524,7 +603,7 @@ mod tests {
     fn formats_timestamp_to_human_readable() {
         let formatted = format_timestamp("2026-01-01T14:08:00Z");
         assert!(formatted.contains("2026"));
-        assert!(formatted.contains("UTC"));
+        assert!(!formatted.contains("UTC"));
     }
 
     #[test]

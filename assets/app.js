@@ -1,6 +1,6 @@
 const STORAGE_KEYS = {
   theme: "ghprs.theme",
-  filters: "ghprs.prFilters.v2",
+  filters: "ghprs.prFilters.v3",
 };
 
 const FILTER_FIELDS = ["status", "title", "author", "sort", "order"];
@@ -55,8 +55,8 @@ class ThemeToggle extends HTMLElement {
     const current = normalizeTheme(document.documentElement.dataset.theme || "light");
     const isDark = current === "dark";
     button.innerHTML = isDark
-      ? '<span aria-hidden="true">🌙</span><span class="sr-only">Dark mode</span>'
-      : '<span aria-hidden="true">☀️</span><span class="sr-only">Light mode</span>';
+      ? '<img src="/assets/icons/moon.svg" alt="" aria-hidden="true" /><span class="sr-only">Dark mode</span>'
+      : '<img src="/assets/icons/sun.svg" alt="" aria-hidden="true" /><span class="sr-only">Light mode</span>';
     button.setAttribute("aria-label", isDark ? "Dark mode" : "Light mode");
   }
 }
@@ -76,28 +76,65 @@ class RepoMultiSelect extends HTMLElement {
   render() {
     this.classList.add("repo-multiselect");
     this.innerHTML = `
-      <div class="repo-combobox-shell">
-        <div class="repo-selected" data-selected></div>
-        <input type="text" class="repo-combobox-input" placeholder="${this.placeholder}" aria-label="Search repositories" />
+      <button type="button" class="repo-popover-trigger" aria-expanded="false">
+        <span class="repo-popover-label" data-trigger-label>All repos</span>
+        <span aria-hidden="true">▾</span>
+      </button>
+      <div class="repo-popover" hidden>
+        <div class="repo-combobox-shell">
+          <div class="repo-selected" data-selected></div>
+          <input type="text" class="repo-combobox-input" placeholder="${this.placeholder}" aria-label="Search repositories" />
+        </div>
+        <div class="repo-combobox-list" hidden></div>
       </div>
-      <div class="repo-combobox-list" hidden></div>
       <div class="repo-hidden-inputs"></div>
     `;
 
+    this.trigger = this.querySelector(".repo-popover-trigger");
+    this.triggerLabel = this.querySelector("[data-trigger-label]");
+    this.popover = this.querySelector(".repo-popover");
     this.input = this.querySelector(".repo-combobox-input");
     this.list = this.querySelector(".repo-combobox-list");
     this.selectedContainer = this.querySelector("[data-selected]");
     this.hiddenInputs = this.querySelector(".repo-hidden-inputs");
 
-    this.input.addEventListener("focus", () => this.renderList());
+    this.trigger.addEventListener("click", () => {
+      this.togglePopover();
+    });
+
+    this.input.addEventListener("focus", () => {
+      this.openPopover();
+      this.renderList();
+    });
     this.input.addEventListener("input", () => this.renderList());
     this.input.addEventListener("keydown", (event) => this.onKeyDown(event));
 
     document.addEventListener("click", (event) => {
       if (!this.contains(event.target)) {
-        this.list.hidden = true;
+        this.closePopover();
       }
     });
+  }
+
+  openPopover() {
+    this.popover.hidden = false;
+    this.trigger.setAttribute("aria-expanded", "true");
+  }
+
+  closePopover() {
+    this.popover.hidden = true;
+    this.list.hidden = true;
+    this.trigger.setAttribute("aria-expanded", "false");
+  }
+
+  togglePopover() {
+    if (this.popover.hidden) {
+      this.openPopover();
+      this.renderList();
+      this.input.focus();
+    } else {
+      this.closePopover();
+    }
   }
 
   loadOptionsFromSibling() {
@@ -107,7 +144,9 @@ class RepoMultiSelect extends HTMLElement {
     }
 
     const optionEls = source.querySelectorAll("option");
-    this.options = Array.from(optionEls).map((option) => option.value).filter(Boolean);
+    this.options = Array.from(optionEls)
+      .map((option) => option.value)
+      .filter(Boolean);
     this.selected = new Set(
       Array.from(optionEls)
         .filter((option) => option.hasAttribute("selected"))
@@ -117,6 +156,7 @@ class RepoMultiSelect extends HTMLElement {
     this.renderSelected();
     this.syncHiddenInputs();
     this.renderList();
+    this.closePopover();
   }
 
   filteredOptions() {
@@ -128,6 +168,7 @@ class RepoMultiSelect extends HTMLElement {
   }
 
   renderList() {
+    this.openPopover();
     const filtered = this.filteredOptions();
     this.list.innerHTML = "";
     this.activeIndex = filtered.length === 0 ? -1 : 0;
@@ -178,8 +219,13 @@ class RepoMultiSelect extends HTMLElement {
       }
       event.preventDefault();
       const delta = event.key === "ArrowDown" ? 1 : -1;
-      this.activeIndex = Math.max(0, Math.min(options.length - 1, this.activeIndex + delta));
-      options.forEach((option, index) => option.classList.toggle("is-active", index === this.activeIndex));
+      this.activeIndex = Math.max(
+        0,
+        Math.min(options.length - 1, this.activeIndex + delta),
+      );
+      options.forEach((option, index) =>
+        option.classList.toggle("is-active", index === this.activeIndex),
+      );
       return;
     }
 
@@ -194,7 +240,7 @@ class RepoMultiSelect extends HTMLElement {
     }
 
     if (event.key === "Escape") {
-      this.list.hidden = true;
+      this.closePopover();
     }
   }
 
@@ -221,8 +267,14 @@ class RepoMultiSelect extends HTMLElement {
       empty.className = "repo-selected-empty";
       empty.textContent = "All accessible repos";
       this.selectedContainer.appendChild(empty);
+      this.triggerLabel.textContent = "All repos";
       return;
     }
+
+    this.triggerLabel.textContent =
+      this.selected.size === 1
+        ? Array.from(this.selected)[0]
+        : `${this.selected.size} repos`;
 
     Array.from(this.selected)
       .sort()
@@ -260,6 +312,7 @@ class RepoMultiSelect extends HTMLElement {
     this.renderSelected();
     this.syncHiddenInputs();
     this.renderList();
+    this.closePopover();
   }
 }
 
@@ -353,7 +406,11 @@ class PrFilterState extends HTMLElement {
       }
     }
 
-    if (Array.isArray(state.repo) && this.combo && typeof this.combo.setSelectedRepos === "function") {
+    if (
+      Array.isArray(state.repo) &&
+      this.combo &&
+      typeof this.combo.setSelectedRepos === "function"
+    ) {
       this.combo.setSelectedRepos(state.repo);
     }
   }

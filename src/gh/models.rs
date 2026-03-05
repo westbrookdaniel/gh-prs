@@ -135,6 +135,12 @@ pub struct ReviewerDecision {
     pub body: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusCheckJob {
+    pub name: String,
+    pub state: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StatusChecksSummary {
     pub total: usize,
@@ -142,6 +148,7 @@ pub struct StatusChecksSummary {
     pub failed: usize,
     pub pending: usize,
     pub neutral: usize,
+    pub jobs: Vec<StatusCheckJob>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -662,54 +669,86 @@ fn summarize_status_checks(value: Option<Value>) -> StatusChecksSummary {
     };
 
     for node in collect_nodes(&value) {
+        let state = classify_status_check(node);
+        let fallback_name = format!("Check {}", summary.total + 1);
+        let name = extract_check_name(node).unwrap_or(fallback_name);
+
         summary.total += 1;
 
-        let status = node
-            .get("status")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_ascii_uppercase();
-        let conclusion = node
-            .get("conclusion")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_ascii_uppercase();
-        let state = node
-            .get("state")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_ascii_uppercase();
+        summary.jobs.push(StatusCheckJob {
+            name,
+            state: state.to_string(),
+        });
 
-        if !status.is_empty() && status != "COMPLETED" {
-            summary.pending += 1;
-            continue;
+        match state {
+            "SUCCESS" => summary.successful += 1,
+            "FAILED" => summary.failed += 1,
+            "PENDING" => summary.pending += 1,
+            _ => summary.neutral += 1,
         }
-
-        if !state.is_empty() {
-            match state.as_str() {
-                "SUCCESS" => summary.successful += 1,
-                "FAILURE" | "ERROR" => summary.failed += 1,
-                "PENDING" | "EXPECTED" => summary.pending += 1,
-                _ => summary.neutral += 1,
-            }
-            continue;
-        }
-
-        if !conclusion.is_empty() {
-            match conclusion.as_str() {
-                "SUCCESS" | "NEUTRAL" | "SKIPPED" => summary.successful += 1,
-                "FAILURE" | "STARTUP_FAILURE" | "TIMED_OUT" | "CANCELLED" | "ACTION_REQUIRED" => {
-                    summary.failed += 1
-                }
-                _ => summary.neutral += 1,
-            }
-            continue;
-        }
-
-        summary.neutral += 1;
     }
 
     summary
+}
+
+fn classify_status_check(node: &Value) -> &'static str {
+    let status = node
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    let conclusion = node
+        .get("conclusion")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    let state = node
+        .get("state")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+
+    if !status.is_empty() && status != "COMPLETED" {
+        return "PENDING";
+    }
+
+    if !state.is_empty() {
+        return match state.as_str() {
+            "SUCCESS" => "SUCCESS",
+            "FAILURE" | "ERROR" => "FAILED",
+            "PENDING" | "EXPECTED" => "PENDING",
+            _ => "NEUTRAL",
+        };
+    }
+
+    if !conclusion.is_empty() {
+        return match conclusion.as_str() {
+            "SUCCESS" | "NEUTRAL" | "SKIPPED" => "SUCCESS",
+            "FAILURE" | "STARTUP_FAILURE" | "TIMED_OUT" | "CANCELLED" | "ACTION_REQUIRED" => {
+                "FAILED"
+            }
+            _ => "NEUTRAL",
+        };
+    }
+
+    "NEUTRAL"
+}
+
+fn extract_check_name(node: &Value) -> Option<String> {
+    let candidates = ["name", "context", "displayName", "title"];
+    for key in candidates {
+        let value = node
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if value.is_some() {
+            return value;
+        }
+    }
+
+    None
 }
 
 fn collect_nodes(value: &Value) -> Vec<&Value> {
@@ -848,9 +887,9 @@ mod tests {
           "statusCheckRollup": {
             "contexts": {
               "nodes": [
-                {"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
-                {"__typename":"StatusContext","state":"PENDING"},
-                {"__typename":"StatusContext","state":"FAILURE"}
+                {"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"SUCCESS"},
+                {"__typename":"StatusContext","context":"tests","state":"PENDING"},
+                {"__typename":"StatusContext","context":"build","state":"FAILURE"}
               ]
             }
           },
@@ -866,6 +905,10 @@ mod tests {
         assert_eq!(detail.checks.successful, 1);
         assert_eq!(detail.checks.pending, 1);
         assert_eq!(detail.checks.failed, 1);
+        assert_eq!(detail.checks.jobs.len(), 3);
+        assert_eq!(detail.checks.jobs[0].name, "lint");
+        assert_eq!(detail.checks.jobs[1].name, "tests");
+        assert_eq!(detail.checks.jobs[2].name, "build");
         assert_eq!(detail.commit_count, 5);
         assert_eq!(detail.file_count, 2);
     }

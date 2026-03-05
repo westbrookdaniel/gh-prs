@@ -5,15 +5,16 @@ use crate::gh::models::{
 };
 use crate::search::SearchArgs;
 use crate::views::helpers::{
-    author_avatar_url, author_initial, build_detail_tabs, build_list_tabs, build_reviewer_statuses,
-    default_list_back_href, detail_path_from_repo, diff_files_view, format_timestamp,
-    markdown_to_html, merge_state_explainer, merge_state_tone, pr_state_tone, repo_action_path,
-    review_decision_tone, review_state_tone, sort_controls, state_label,
+    author_avatar_url, author_initial, avatar_style_from_author, build_detail_tabs,
+    build_list_tabs, build_reviewer_statuses, default_list_back_href, detail_path_from_repo,
+    diff_files_view, format_timestamp, markdown_to_html, merge_state_explainer, merge_state_tone,
+    merge_state_tooltip, pr_state_tone, pr_state_tooltip, repo_action_path, review_decision_tone,
+    review_decision_tooltip, review_state_tone, sort_controls, state_label,
 };
 use crate::views::types::{
     DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel,
     PrDetailPageModel, PrListPageModel, PrListRowView, PullRequestReviewView, RepoOptionView,
-    ReviewCommentView, checks_view, diagnostics_label, reviewer_decisions_or_none, source_label,
+    ReviewCommentView, checks_view, diagnostics_label, source_label,
 };
 
 pub fn list_page_model(
@@ -39,8 +40,10 @@ pub fn list_page_model(
             title: item.title,
             state_label: state_label(item.state.clone(), item.is_draft),
             state_tone: pr_state_tone(&item.state, item.is_draft),
+            state_tooltip: pr_state_tooltip(&item.state, item.is_draft),
             author: item.author.clone(),
             author_avatar_url: author_avatar_url(&item.author, &item.author_avatar_url),
+            author_avatar_style: avatar_style_from_author(&item.author),
             author_initial: author_initial(&item.author),
             updated_at: format_timestamp(&item.updated_at),
             comment_count: item.comment_count,
@@ -95,7 +98,7 @@ pub fn detail_page_model(
 
     let header = detail_header(&detail);
     let requested_reviewers = if detail.requested_reviewers.is_empty() {
-        vec!["none".to_string()]
+        Vec::new()
     } else {
         detail.requested_reviewers.clone()
     };
@@ -113,8 +116,6 @@ pub fn detail_page_model(
         back_to_list_href: default_list_back_href(query.as_deref()),
         header,
         reviewer_statuses,
-        requested_reviewers,
-        reviewer_decisions: reviewer_decisions_or_none(detail.latest_reviewer_decisions),
         checks: checks_view(detail.checks),
         body_html: markdown_to_html(&detail.body),
         issue_comments: map_issue_comments(issue_comments),
@@ -177,12 +178,14 @@ fn detail_header(detail: &crate::gh::models::PullRequestDetail) -> DetailHeaderV
         title: detail.title.clone(),
         state_label: detail.state.clone(),
         state_tone: pr_state_tone(&detail.state, detail.is_draft),
+        state_tooltip: pr_state_tooltip(&detail.state, detail.is_draft),
         is_draft: detail.is_draft,
         draft_label: if detail.is_draft {
             "DRAFT".to_string()
         } else {
             "READY".to_string()
         },
+        draft_tooltip: "Draft pull request; not ready to merge".to_string(),
         author: detail.author.clone(),
         created_at: format_timestamp(&detail.created_at),
         updated_at: format_timestamp(&detail.updated_at),
@@ -191,6 +194,7 @@ fn detail_header(detail: &crate::gh::models::PullRequestDetail) -> DetailHeaderV
         head_ref_name: detail.head_ref_name.clone(),
         merge_state_status: detail.merge_state_status.clone(),
         merge_state_tone: merge_state_tone(&detail.merge_state_status, &detail.mergeable),
+        merge_state_tooltip: merge_state_tooltip(&detail.merge_state_status, &detail.mergeable),
         merge_state_explainer: merge_state_explainer(&detail.merge_state_status),
         mergeable: detail.mergeable.clone(),
         review_decision: detail
@@ -198,6 +202,9 @@ fn detail_header(detail: &crate::gh::models::PullRequestDetail) -> DetailHeaderV
             .clone()
             .unwrap_or_else(|| "NONE".to_string()),
         review_decision_tone: review_decision_tone(
+            detail.review_decision.as_deref().unwrap_or("NONE"),
+        ),
+        review_decision_tooltip: review_decision_tooltip(
             detail.review_decision.as_deref().unwrap_or("NONE"),
         ),
         commit_count: detail.commit_count,
