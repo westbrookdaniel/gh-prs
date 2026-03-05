@@ -3,18 +3,33 @@
 {% block title %}{{ model.page_title }}{% endblock %}
 
 {% block content %}
-<main class="page page-detail">
+<main class="page page-detail page-consistent">
   <section class="page-header detail-hero">
     <div class="detail-hero-top">
       <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
-      <div class="hero-badges">
-        <span class="badge {{ model.header.state_tone }}" title="{{ model.header.state_tooltip }}">{{ model.header.state_label }}</span>
-        {% if model.header.is_draft %}<span class="badge state-draft" title="{{ model.header.draft_tooltip }}">DRAFT</span>{% endif %}
-        <span class="badge {{ model.header.review_decision_tone }}" title="{{ model.header.review_decision_tooltip }}">{% if model.header.review_decision.is_empty() %}NONE{% else %}{{ model.header.review_decision }}{% endif %}</span>
-        <span class="badge {{ model.header.merge_state_tone }}" title="{{ model.header.merge_state_tooltip }}">{{ model.header.merge_state_status }}</span>
-      </div>
+      <details class="header-menu">
+        <summary aria-label="More actions">⋯</summary>
+        <form method="post" action="{{ model.state_post_path }}" class="header-menu-panel">
+          {% if model.is_open %}
+          <button type="submit" name="state" value="close" class="btn-action action-danger">Close PR</button>
+          {% endif %}
+          {% if model.is_closed %}
+          <button type="submit" name="state" value="reopen" class="btn-neutral">Reopen PR</button>
+          {% endif %}
+          {% if model.header.is_draft %}
+          <button type="submit" name="state" value="ready" class="btn-neutral">Mark Ready</button>
+          {% endif %}
+        </form>
+      </details>
     </div>
+
     <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
+    <div class="hero-badges">
+      <span class="badge {{ model.header.state_tone }}" title="{{ model.header.state_tooltip }}">{{ model.header.state_label }}</span>
+      {% if model.header.is_draft %}<span class="badge state-draft" title="{{ model.header.draft_tooltip }}">DRAFT</span>{% endif %}
+      <span class="badge {{ model.header.review_decision_tone }}" title="{{ model.header.review_decision_tooltip }}">{% if model.header.review_decision.is_empty() %}NONE{% else %}{{ model.header.review_decision }}{% endif %}</span>
+      <span class="badge {{ model.header.merge_state_tone }}" title="{{ model.header.merge_state_tooltip }}">{{ model.header.merge_state_status }}</span>
+    </div>
     <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a> · <a href="{{ model.header.url }}">Open on GitHub</a></p>
     <p class="meta">author: <strong>{{ model.header.author }}</strong> · created: {{ model.header.created_at }} · updated: {{ model.header.updated_at }}</p>
     <p class="meta">base: <code>{{ model.header.base_ref_name }}</code> · head: <code>{{ model.header.head_ref_name }}</code> · mergeable: <strong>{{ model.header.mergeable }}</strong></p>
@@ -66,58 +81,15 @@
             <div class="review-actions">
               <button type="submit" name="event" value="approve" class="btn-action action-approve">Approve</button>
               <button type="submit" name="event" value="comment" class="btn-action action-comment">Comment</button>
-              <button type="submit" name="event" value="request_changes" class="btn-action action-conflict">Request changes</button>
+              <button type="submit" name="event" value="request_changes" class="btn-action action-warning">Request changes</button>
             </div>
-          </form>
-        </article>
-      </section>
-
-      <section class="pr-ops-section">
-        <article class="stack">
-          <label for="reviewers-input">Add reviewers</label>
-          <form method="post" action="{{ model.reviewers_post_path }}" class="stack inline-form">
-            <combobox-comp id="reviewers-input" input-name="reviewers" placeholder="Search reviewers..." empty-label="Select reviewers" source-selector="#reviewer-options-source"></combobox-comp>
-            <select id="reviewer-options-source" hidden multiple>
-              {% for reviewer in model.reviewer_statuses %}
-              <option value="{{ reviewer.reviewer }}">{{ reviewer.reviewer }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit" class="btn-neutral">Add Reviewers</button>
-          </form>
-        </article>
-
-        <article class="stack">
-          <label for="merge-method">Merge</label>
-          <form method="post" action="{{ model.merge_post_path }}" class="stack inline-form">
-            <select id="merge-method" name="method">
-              <option value="merge">Merge commit</option>
-              <option value="squash">Squash and merge</option>
-              <option value="rebase">Rebase and merge</option>
-            </select>
-            <label class="checkbox-row"><input type="checkbox" name="delete_branch" /> Delete branch</label>
-            <button type="submit" class="btn-action action-approve" {% if !model.header.can_merge %}disabled{% endif %}>Merge PR</button>
-          </form>
-        </article>
-
-        <article class="stack">
-          <label>PR state</label>
-          <form method="post" action="{{ model.state_post_path }}" class="state-actions">
-            {% if model.is_open %}
-            <button type="submit" name="state" value="close" class="btn-neutral">Close</button>
-            {% endif %}
-            {% if model.is_closed %}
-            <button type="submit" name="state" value="reopen" class="btn-neutral">Reopen</button>
-            {% endif %}
-            {% if model.header.is_draft %}
-            <button type="submit" name="state" value="ready" class="btn-neutral">Mark Ready</button>
-            {% endif %}
           </form>
         </article>
       </section>
     </section>
 
     <aside class="reviewer-sidebar">
-      <div class="reviewer-stack">
+      <div class="reviewer-stack slim">
         <h2 class="sr-only">Reviewers</h2>
         {% if model.reviewer_statuses.is_empty() %}
         <p class="meta">No reviewers</p>
@@ -125,15 +97,24 @@
         {% for reviewer in model.reviewer_statuses %}
         <article class="reviewer-item">
           <p class="reviewer-name"><strong>{{ reviewer.reviewer }}</strong></p>
-          <p class="meta"><span class="badge {{ reviewer.tone }}" title="{{ reviewer.state_tooltip }}">{{ reviewer.state }}</span></p>
-          <p class="meta">{{ reviewer.submitted_at }}</p>
+          <p class="meta"><span class="badge {{ reviewer.tone }}" title="{{ reviewer.state_tooltip }}">{{ reviewer.state }}</span> · {{ reviewer.submitted_at }}</p>
         </article>
         {% endfor %}
         {% endif %}
+
+        <form id="reviewers-form" method="post" action="{{ model.reviewers_post_path }}" class="stack inline-form slim-form">
+          <label for="reviewers-input">Add reviewers</label>
+          <combobox-comp id="reviewers-input" input-name="reviewers" placeholder="Search reviewers..." empty-label="Select reviewers" no-results-label="No reviewers found" source-selector="#reviewer-options-source" auto-submit="true" form-id="reviewers-form"></combobox-comp>
+          <select id="reviewer-options-source" hidden multiple>
+            {% for reviewer in model.reviewer_options %}
+            <option value="{{ reviewer }}">{{ reviewer }}</option>
+            {% endfor %}
+          </select>
+        </form>
       </div>
 
-      <section class="checks-panel">
-        <p class="meta checks-headline">{{ model.checks.headline }}</p>
+      <section class="checks-panel merge-panel">
+        <p class="meta checks-headline"><img src="{{ model.checks.headline_icon_src }}" alt="" aria-hidden="true" class="check-icon {{ model.checks.headline_tone }}" /> <span class="badge {{ model.checks.headline_tone }}" title="{{ model.checks.headline_tooltip }}">{{ model.checks.headline }}</span></p>
         <div class="checks-progress" role="img" aria-label="Status checks progress">
           <span class="checks-segment checks-pass" style="width: {{ model.checks.successful_pct }}%"></span>
           <span class="checks-segment checks-fail" style="width: {{ model.checks.failed_pct }}%"></span>
@@ -149,6 +130,19 @@
           </li>
           {% endfor %}
         </ul>
+
+        <form method="post" action="{{ model.merge_post_path }}" class="stack inline-form">
+          <label for="merge-method">Merge</label>
+          <combobox-comp id="merge-method-combo" source-selector="#merge-method-source" input-name="method" placeholder="Merge method" empty-label="Merge method" class="single"></combobox-comp>
+          <select id="merge-method-source" hidden>
+            <option value="merge" selected>Merge commit</option>
+            <option value="squash">Squash and merge</option>
+            <option value="rebase">Rebase and merge</option>
+          </select>
+          <label class="checkbox-row"><input type="checkbox" name="delete_branch" /> Delete branch</label>
+          <button type="submit" class="{{ model.merge_button_tone }}" {% if model.merge_button_disabled %}disabled{% endif %}>{{ model.merge_button_label }}</button>
+          <p class="meta">{{ model.merge_button_reason }}</p>
+        </form>
       </section>
     </aside>
   </section>

@@ -2,9 +2,9 @@ use crate::gh::cache::{CachedOutput, cache_get, cache_invalidate_prefix, cache_s
 use crate::gh::models::{
     MAX_SEARCH_LIMIT, PreflightDiagnostics, PullRequestConversation, PullRequestDetail,
     PullRequestFile, PullRequestReview, PullRequestReviewComment, PullRequestSearchItem,
-    PullRequestStatus, RepoContext, parse_issue_comments,
-    parse_preflight_auth, parse_pull_request_detail, parse_pull_request_files,
-    parse_pull_request_review_comments, parse_pull_request_reviews, parse_repo_context,
+    PullRequestStatus, RepoContext, parse_issue_comments, parse_preflight_auth,
+    parse_pull_request_detail, parse_pull_request_files, parse_pull_request_review_comments,
+    parse_pull_request_reviews, parse_repo_context,
 };
 use crate::gh::{CommandClass, GhError, GhResult};
 use crate::search::SearchArgs;

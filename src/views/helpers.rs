@@ -9,7 +9,7 @@ use crate::views::types::{
 };
 use ammonia::Builder;
 use chrono::{DateTime, Local};
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{Options, Parser, html};
 use std::collections::HashSet;
 
 pub fn clamp_flash(message: String) -> String {
@@ -56,7 +56,7 @@ pub fn pr_state_tooltip(state: &str, is_draft: bool) -> String {
 pub fn review_decision_tone(value: &str) -> String {
     match value.trim().to_ascii_uppercase().as_str() {
         "APPROVED" => "state-approved".to_string(),
-        "CHANGES_REQUESTED" => "state-conflict".to_string(),
+        "CHANGES_REQUESTED" => "state-warning".to_string(),
         "REVIEW_REQUIRED" => "state-open".to_string(),
         "NONE" | "" => "state-neutral".to_string(),
         _ => "state-neutral".to_string(),
@@ -116,7 +116,7 @@ pub fn merge_state_tooltip(merge_state_status: &str, mergeable: &str) -> String 
 pub fn review_state_tone(state: &str) -> String {
     match state.trim().to_ascii_uppercase().as_str() {
         "APPROVED" => "state-approved".to_string(),
-        "CHANGES_REQUESTED" => "state-conflict".to_string(),
+        "CHANGES_REQUESTED" => "state-warning".to_string(),
         "COMMENTED" => "state-open".to_string(),
         _ => "state-neutral".to_string(),
     }
@@ -574,9 +574,102 @@ fn parse_patch_lines(patch: Option<&str>) -> Vec<DiffLineView> {
             } else {
                 "ctx".to_string()
             },
-            text: line.to_string(),
+            text: highlight_diff_line(line),
         })
         .collect()
+}
+
+fn highlight_diff_line(line: &str) -> String {
+    if let Some(comment_index) = line.find("//") {
+        let (before, comment) = line.split_at(comment_index);
+        let before_highlighted = highlight_diff_line(before);
+        let comment_escaped = comment
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        return format!(
+            "{}<span class=\"tok-comment\">{}</span>",
+            before_highlighted, comment_escaped
+        );
+    }
+
+    let escaped = line
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+
+    let mut out = escaped;
+
+    for keyword in [
+        "fn", "let", "const", "if", "else", "match", "for", "while", "return", "pub", "impl",
+        "struct", "enum", "use", "mod", "class", "function", "var",
+    ] {
+        let replacement = format!("<span class=\"tok-keyword\">{keyword}</span>");
+        out = out.replace(&format!(" {keyword} "), &format!(" {replacement} "));
+        out = out.replace(&format!(" {keyword}("), &format!(" {replacement}("));
+    }
+
+    out = highlight_quoted(&out, '"', "tok-string");
+    out = highlight_quoted(&out, '\'', "tok-string");
+    out = highlight_numbers(&out);
+    out
+}
+
+fn highlight_numbers(input: &str) -> String {
+    let mut output = String::new();
+    let mut number = String::new();
+
+    for ch in input.chars() {
+        if ch.is_ascii_digit() {
+            number.push(ch);
+            continue;
+        }
+
+        if !number.is_empty() {
+            output.push_str(&format!("<span class=\"tok-number\">{}</span>", number));
+            number.clear();
+        }
+        output.push(ch);
+    }
+
+    if !number.is_empty() {
+        output.push_str(&format!("<span class=\"tok-number\">{}</span>", number));
+    }
+
+    output
+}
+
+fn highlight_quoted(input: &str, quote: char, class_name: &str) -> String {
+    let mut output = String::new();
+    let mut in_string = false;
+    let mut buffer = String::new();
+
+    for ch in input.chars() {
+        if ch == quote {
+            if in_string {
+                buffer.push(ch);
+                output.push_str(&format!("<span class=\"{class_name}\">{}</span>", buffer));
+                buffer.clear();
+                in_string = false;
+            } else {
+                in_string = true;
+                buffer.push(ch);
+            }
+            continue;
+        }
+
+        if in_string {
+            buffer.push(ch);
+        } else {
+            output.push(ch);
+        }
+    }
+
+    if !buffer.is_empty() {
+        output.push_str(&buffer);
+    }
+
+    output
 }
 
 #[cfg(test)]

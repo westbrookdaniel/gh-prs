@@ -139,6 +139,9 @@ pub struct ChecksSummaryView {
     pub pending_pct: usize,
     pub neutral_pct: usize,
     pub headline: String,
+    pub headline_tone: String,
+    pub headline_icon_src: String,
+    pub headline_tooltip: String,
     pub jobs: Vec<CheckJobView>,
 }
 
@@ -229,6 +232,7 @@ pub struct PrDetailPageModel {
     pub repo_url: String,
     pub header: DetailHeaderView,
     pub reviewer_statuses: Vec<ReviewerStatusView>,
+    pub reviewer_options: Vec<String>,
     pub checks: ChecksSummaryView,
     pub body_html: String,
     pub conversation_feed: Vec<ConversationFeedItemView>,
@@ -237,6 +241,10 @@ pub struct PrDetailPageModel {
     pub reviewers_post_path: String,
     pub merge_post_path: String,
     pub state_post_path: String,
+    pub merge_button_tone: String,
+    pub merge_button_label: String,
+    pub merge_button_reason: String,
+    pub merge_button_disabled: bool,
     pub is_open: bool,
     pub is_closed: bool,
     pub flash: Option<FlashMessageView>,
@@ -291,6 +299,32 @@ pub fn checks_view(summary: StatusChecksSummary) -> ChecksSummaryView {
         "All checks passing".to_string()
     };
 
+    let (headline_tone, headline_icon_src, headline_tooltip) = if summary.failed > 0 {
+        (
+            "state-warning".to_string(),
+            "/assets/icons/x-circle.svg".to_string(),
+            "Checks are failing".to_string(),
+        )
+    } else if summary.pending > 0 {
+        (
+            "state-open".to_string(),
+            "/assets/icons/clock.svg".to_string(),
+            "Checks are still running".to_string(),
+        )
+    } else if summary.total == 0 {
+        (
+            "state-neutral".to_string(),
+            "/assets/icons/minus-circle.svg".to_string(),
+            "No checks reported".to_string(),
+        )
+    } else {
+        (
+            "state-approved".to_string(),
+            "/assets/icons/check-circle.svg".to_string(),
+            "All checks are passing".to_string(),
+        )
+    };
+
     ChecksSummaryView {
         total: summary.total,
         successful: summary.successful,
@@ -302,6 +336,9 @@ pub fn checks_view(summary: StatusChecksSummary) -> ChecksSummaryView {
         pending_pct,
         neutral_pct,
         headline,
+        headline_tone,
+        headline_icon_src,
+        headline_tooltip,
         jobs: check_jobs_view(summary.jobs),
     }
 }
@@ -315,7 +352,7 @@ fn check_jobs_view(jobs: Vec<StatusCheckJob>) -> Vec<CheckJobView> {
                     "/assets/icons/check-circle.svg".to_string(),
                 ),
                 "FAILED" => (
-                    "state-conflict".to_string(),
+                    "state-warning".to_string(),
                     "/assets/icons/x-circle.svg".to_string(),
                 ),
                 "PENDING" => (
@@ -335,7 +372,7 @@ fn check_jobs_view(jobs: Vec<StatusCheckJob>) -> Vec<CheckJobView> {
                 icon_src: icon_href,
                 tooltip: match tone.as_str() {
                     "state-approved" => "Check passed".to_string(),
-                    "state-conflict" => "Check failed".to_string(),
+                    "state-warning" => "Check failed".to_string(),
                     "state-open" => "Check pending".to_string(),
                     _ => "Check neutral".to_string(),
                 },

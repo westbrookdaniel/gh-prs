@@ -3,7 +3,7 @@
 {% block title %}{{ model.page_title }}{% endblock %}
 
 {% block content %}
-<main class="page changes-page">
+<main class="page changes-page page-consistent">
   <section class="page-header detail-hero">
     <div class="detail-hero-top">
       <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
@@ -62,7 +62,7 @@
           {% endif %}
 
           {% if file.has_patch %}
-          <pre class="diff-block diff-lines-block">{% for line in file.lines %}<span class="diff-line diff-{{ line.kind_class }}">{{ line.text }}</span>
+          <pre class="diff-block diff-lines-block">{% for line in file.lines %}<span class="diff-line diff-{{ line.kind_class }}">{{ line.text|safe }}</span>
 {% endfor %}</pre>
           {% else %}
           <p class="empty">Patch not available for this file.</p>

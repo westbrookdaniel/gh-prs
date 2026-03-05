@@ -5,6 +5,18 @@ const STORAGE_KEYS = {
 
 const FILTER_FIELDS = ["status", "title", "author", "sort", "order"];
 
+const BATCH_NAV_COOLDOWN_MS = 450;
+let lastNavigationAt = 0;
+
+function guardedNavigate(url) {
+  const now = Date.now();
+  if (now - lastNavigationAt < BATCH_NAV_COOLDOWN_MS) {
+    return;
+  }
+  lastNavigationAt = now;
+  window.location.assign(url);
+}
+
 function normalizeTheme(value) {
   return value === "dark" ? "dark" : "light";
 }
@@ -67,6 +79,10 @@ class ComboboxComp extends HTMLElement {
     this.sourceSelector = this.getAttribute("source-selector") || "";
     this.placeholder = this.getAttribute("placeholder") || "Search repos...";
     this.emptyLabel = this.getAttribute("empty-label") || "All options";
+    this.noResultsLabel = this.getAttribute("no-results-label") || "No matches";
+    this.single = this.classList.contains("single") || this.getAttribute("single") === "true";
+    this.autoSubmit = this.getAttribute("auto-submit") === "true";
+    this.formId = this.getAttribute("form-id") || "";
     this.options = [];
     this.selected = new Set();
     this.activeIndex = -1;
@@ -108,7 +124,6 @@ class ComboboxComp extends HTMLElement {
         </div>
         <div class="repo-combobox-list" hidden></div>
       </div>
-      <div class="repo-hidden-inputs"></div>
     `;
 
     this.trigger = this.querySelector(".repo-popover-trigger");
@@ -211,7 +226,7 @@ class ComboboxComp extends HTMLElement {
       this.list.hidden = false;
       const empty = document.createElement("div");
       empty.className = "repo-option-empty";
-      empty.textContent = "No repositories found";
+      empty.textContent = this.noResultsLabel;
       this.list.appendChild(empty);
       return;
     }
@@ -283,6 +298,17 @@ class ComboboxComp extends HTMLElement {
       return;
     }
 
+    if (this.single) {
+      this.selected = new Set([repo]);
+      this.renderSelected();
+      this.syncSourceSelect();
+      if (this.autoSubmit) {
+        this.submitConfiguredForm();
+      }
+      this.closePopover();
+      return;
+    }
+
     if (this.selected.has(repo)) {
       this.selected.delete(repo);
     } else {
@@ -291,6 +317,7 @@ class ComboboxComp extends HTMLElement {
 
     this.renderSelected();
     this.syncSourceSelect();
+    this.dispatchEvent(new Event("change", { bubbles: true }));
     this.renderList();
   }
 
@@ -308,11 +335,14 @@ class ComboboxComp extends HTMLElement {
     this.triggerLabel.textContent =
       this.selected.size === 1
         ? Array.from(this.selected)[0]
-        : `${this.selected.size} repos`;
+        : `${this.selected.size} selected`;
 
     Array.from(this.selected)
       .sort()
       .forEach((repo) => {
+        if (this.single) {
+          return;
+        }
         const chip = document.createElement("button");
         chip.type = "button";
         chip.className = "repo-chip";
@@ -330,9 +360,18 @@ class ComboboxComp extends HTMLElement {
     }
 
     this.sourceSelect.name = this.inputName;
+    this.sourceSelect.multiple = !this.single;
     this.sourceSelect.querySelectorAll("option").forEach((option) => {
       option.selected = this.selected.has(option.value);
     });
+
+    if (this.single && this.selected.size === 0) {
+      const first = this.sourceSelect.querySelector("option");
+      if (first) {
+        first.selected = true;
+        this.selected = new Set([first.value]);
+      }
+    }
   }
 
   getSelectedValues() {
@@ -345,12 +384,26 @@ class ComboboxComp extends HTMLElement {
       ? values.filter((value) => typeof value === "string" && allowed.has(value))
       : [];
 
-    this.selected = new Set(next);
+    this.selected = this.single ? new Set(next.slice(0, 1)) : new Set(next);
     this.renderSelected();
     this.syncSourceSelect();
     this.renderList();
     this.closePopover();
   }
+
+  submitConfiguredForm() {
+    let form = null;
+    if (this.formId) {
+      form = document.getElementById(this.formId);
+    }
+    if (!(form instanceof HTMLFormElement)) {
+      form = this.closest("form");
+    }
+    if (form instanceof HTMLFormElement) {
+      form.requestSubmit();
+    }
+  }
+
 }
 
 class PrFilterState extends HTMLElement {
@@ -362,6 +415,7 @@ class PrFilterState extends HTMLElement {
     this.form = document.getElementById(this.formId);
     this.resetLink = document.getElementById(this.resetId);
     this.combo = document.getElementById(this.comboId);
+    this.statusCombo = document.getElementById("status-combobox");
 
     if (!(this.form instanceof HTMLFormElement)) {
       return;
@@ -450,6 +504,10 @@ class PrFilterState extends HTMLElement {
     ) {
       this.combo.setSelectedValues(state.repo);
     }
+
+    if (state.status && this.statusCombo && typeof this.statusCombo.setSelectedValues === "function") {
+      this.statusCombo.setSelectedValues([state.status]);
+    }
   }
 
   queryStringFromState(state) {
@@ -489,7 +547,7 @@ class PrFilterState extends HTMLElement {
     const query = this.queryStringFromState(saved);
     const target = `/prs${query}`;
     if (target !== `${window.location.pathname}${window.location.search}`) {
-      window.location.replace(target);
+      guardedNavigate(target);
     }
   }
 
@@ -511,7 +569,7 @@ class PrFilterState extends HTMLElement {
       } catch {
         // ignore
       }
-      window.location.assign("/prs");
+      guardedNavigate("/prs");
     });
   }
 
@@ -535,6 +593,7 @@ class PrFilterState extends HTMLElement {
       });
     });
   }
+
 }
 
 customElements.define("theme-toggle", ThemeToggle);

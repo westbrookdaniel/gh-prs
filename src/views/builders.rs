@@ -1,6 +1,6 @@
 use crate::gh::models::{
-    IssueComment, PullRequestConversation, PullRequestFile, PullRequestReview,
-    PullRequestReviewComment, PullRequestSearchItem, RepoContext, DEFAULT_SEARCH_LIMIT,
+    DEFAULT_SEARCH_LIMIT, IssueComment, PullRequestConversation, PullRequestFile,
+    PullRequestReview, PullRequestReviewComment, PullRequestSearchItem, RepoContext,
 };
 use crate::search::SearchArgs;
 use crate::views::helpers::{
@@ -12,9 +12,9 @@ use crate::views::helpers::{
     sort_controls, state_label,
 };
 use crate::views::types::{
-    checks_view, DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView,
-    PrChangesPageModel, PrDetailPageModel, PrListPageModel, PrListRowView, PullRequestReviewView,
-    RepoOptionView, ReviewCommentView,
+    DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel,
+    PrDetailPageModel, PrListPageModel, PrListRowView, PullRequestReviewView, RepoOptionView,
+    ReviewCommentView, checks_view,
 };
 
 pub fn list_page_model(
@@ -116,6 +116,56 @@ pub fn detail_page_model(
         mapped_review_comments,
     );
 
+    let mut reviewer_options = requested_reviewers.clone();
+    for status in &reviewer_statuses {
+        reviewer_options.push(status.reviewer.clone());
+    }
+    reviewer_options.sort();
+    reviewer_options.dedup();
+
+    let has_failing_checks = detail.checks.failed > 0;
+    let has_pending_checks = detail.checks.pending > 0;
+    let mergeable_clean = detail.mergeable.eq_ignore_ascii_case("MERGEABLE");
+    let is_open = detail.state.eq_ignore_ascii_case("OPEN");
+
+    let (merge_button_tone, merge_button_label, merge_button_reason, merge_button_disabled) =
+        if !is_open {
+            (
+                "btn-neutral".to_string(),
+                "Cannot Merge".to_string(),
+                "PR is not open".to_string(),
+                true,
+            )
+        } else if !mergeable_clean {
+            (
+                "btn-action action-conflict".to_string(),
+                "Blocked".to_string(),
+                "Merge conflicts or branch issues detected".to_string(),
+                true,
+            )
+        } else if has_failing_checks {
+            (
+                "btn-action action-warning".to_string(),
+                "Merge Risk".to_string(),
+                "One or more checks are failing".to_string(),
+                false,
+            )
+        } else if has_pending_checks {
+            (
+                "btn-action action-warning".to_string(),
+                "Merge Pending".to_string(),
+                "Checks are still running".to_string(),
+                false,
+            )
+        } else {
+            (
+                "btn-action action-approve".to_string(),
+                "Merge PR".to_string(),
+                "Ready to merge".to_string(),
+                false,
+            )
+        };
+
     PrDetailPageModel {
         page_title: format!("PR #{}", detail.number),
         repo_name: repo.name_with_owner.clone(),
@@ -124,6 +174,7 @@ pub fn detail_page_model(
         back_to_list_href: default_list_back_href(query.as_deref()),
         header,
         reviewer_statuses,
+        reviewer_options,
         checks: checks_view(detail.checks),
         body_html: markdown_to_html(&detail.body),
         conversation_feed,
@@ -157,7 +208,11 @@ pub fn detail_page_model(
             "state",
             query.as_deref(),
         ),
-        is_open: detail.state.eq_ignore_ascii_case("OPEN"),
+        merge_button_tone,
+        merge_button_label,
+        merge_button_reason,
+        merge_button_disabled,
+        is_open,
         is_closed: detail.state.eq_ignore_ascii_case("CLOSED"),
         flash,
     }
