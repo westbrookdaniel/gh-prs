@@ -3,23 +3,21 @@
 {% block title %}{{ model.page_title }}{% endblock %}
 
 {% block content %}
-<main class="page">
-  <section class="panel page-header">
-    <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
-    <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a></p>
+<main class="page page-detail">
+  <section class="panel page-header detail-hero">
+    <div class="detail-hero-top">
+      <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
+      <div class="hero-badges">
+        <span class="badge {{ model.header.state_tone }}">{{ model.header.state_label }}</span>
+        <span class="badge {{ model.header.review_decision_tone }}">{% if model.header.review_decision.is_empty() %}NONE{% else %}{{ model.header.review_decision }}{% endif %}</span>
+        <span class="badge {{ model.header.merge_state_tone }}">{{ model.header.merge_state_status }}</span>
+      </div>
+    </div>
     <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
-    <p class="meta">
-      state: <strong>{{ model.header.state_label }}</strong> · {{ model.header.draft_label }} · review: <strong>{% if model.header.review_decision.is_empty() %}NONE{% else %}{{ model.header.review_decision }}{% endif %}</strong>
-    </p>
-    <p class="meta">
-      author: <strong>{{ model.header.author }}</strong> · created: {{ model.header.created_at }} · updated: {{ model.header.updated_at }}
-    </p>
-    <p class="meta">
-      base: <code>{{ model.header.base_ref_name }}</code> · head: <code>{{ model.header.head_ref_name }}</code> · merge state: <strong>{{ model.header.merge_state_status }}</strong>
-    </p>
-    <p class="meta">
-      commits: <strong>{{ model.header.commit_count }}</strong> · files: <strong>{{ model.header.file_count }}</strong> · <a href="{{ model.header.url }}">Open on GitHub</a>
-    </p>
+    <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a> · {{ model.header.draft_label }} · <a href="{{ model.header.url }}">Open on GitHub</a></p>
+    <p class="meta">author: <strong>{{ model.header.author }}</strong> · created: {{ model.header.created_at }} · updated: {{ model.header.updated_at }}</p>
+    <p class="meta">base: <code>{{ model.header.base_ref_name }}</code> · head: <code>{{ model.header.head_ref_name }}</code> · mergeable: <strong>{{ model.header.mergeable }}</strong></p>
+    <p class="meta">commits: <strong>{{ model.header.commit_count }}</strong> · files: <strong>{{ model.header.file_count }}</strong></p>
   </section>
 
   {% if let Some(flash) = model.flash %}
@@ -48,7 +46,7 @@
       <ul class="simple-list">
         {% for review in model.reviewer_decisions %}
         <li>
-          <strong>{{ review.reviewer }}</strong> · {{ review.state }} · {{ review.submitted_at }}
+          <strong>{{ review.reviewer }}</strong> · <span class="badge {{ review.tone }}">{{ review.state }}</span> · {{ review.submitted_at }}
         </li>
         {% endfor %}
       </ul>
@@ -97,7 +95,7 @@
     {% else %}
     {% for review in model.reviews %}
     <article class="thread-item">
-      <p class="meta"><strong>{{ review.author }}</strong> · {{ review.state }} · {{ review.submitted_at }} · <a href="{{ review.url }}">GitHub</a></p>
+      <p class="meta"><strong>{{ review.author }}</strong> · <span class="badge {{ review.tone }}">{{ review.state }}</span> · {{ review.submitted_at }} · <a href="{{ review.url }}">GitHub</a></p>
       <pre class="body-block">{{ review.body }}</pre>
     </article>
     {% endfor %}
@@ -124,22 +122,20 @@
       <form method="post" action="{{ model.comment_post_path }}" class="stack">
         <label for="comment-body">Comment body</label>
         <textarea id="comment-body" name="body" rows="6" required></textarea>
-        <button type="submit">Post Comment</button>
+        <button type="submit" class="btn-neutral">Post Comment</button>
       </form>
     </article>
 
     <article class="panel">
       <h2>Submit Review</h2>
       <form method="post" action="{{ model.review_post_path }}" class="stack">
-        <label for="review-event">Review action</label>
-        <select id="review-event" name="event" required>
-          <option value="approve">Approve</option>
-          <option value="comment">Comment</option>
-          <option value="request_changes">Request changes</option>
-        </select>
         <label for="review-body">Review body</label>
         <textarea id="review-body" name="body" rows="6" required></textarea>
-        <button type="submit">Submit Review</button>
+        <div class="review-actions">
+          <button type="submit" name="event" value="approve" class="btn-action action-approve">Approve</button>
+          <button type="submit" name="event" value="comment" class="btn-action action-comment">Comment</button>
+          <button type="submit" name="event" value="request_changes" class="btn-action action-conflict">Request changes</button>
+        </div>
       </form>
     </article>
   </section>

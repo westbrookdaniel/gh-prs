@@ -29,6 +29,7 @@ pub struct PrListRowView {
     pub detail_path: String,
     pub title: String,
     pub state_label: String,
+    pub state_tone: String,
     pub author: String,
     pub updated_at: String,
     pub comment_count: usize,
@@ -63,6 +64,7 @@ pub struct DetailTabView {
 pub struct ReviewDecisionView {
     pub reviewer: String,
     pub state: String,
+    pub tone: String,
     pub submitted_at: String,
     pub body: String,
 }
@@ -80,6 +82,7 @@ pub struct IssueCommentView {
 pub struct PullRequestReviewView {
     pub author: String,
     pub state: String,
+    pub tone: String,
     pub body: String,
     pub submitted_at: String,
     pub url: String,
@@ -111,6 +114,7 @@ pub struct DetailHeaderView {
     pub number: u64,
     pub title: String,
     pub state_label: String,
+    pub state_tone: String,
     pub draft_label: String,
     pub author: String,
     pub created_at: String,
@@ -119,8 +123,10 @@ pub struct DetailHeaderView {
     pub base_ref_name: String,
     pub head_ref_name: String,
     pub merge_state_status: String,
+    pub merge_state_tone: String,
     pub mergeable: String,
     pub review_decision: String,
+    pub review_decision_tone: String,
     pub commit_count: usize,
     pub file_count: usize,
 }
@@ -258,6 +264,7 @@ pub fn reviewer_decisions_or_none(values: Vec<ReviewerDecision>) -> Vec<ReviewDe
         return vec![ReviewDecisionView {
             reviewer: "none".to_string(),
             state: "NONE".to_string(),
+            tone: super::helpers::review_decision_tone("NONE"),
             submitted_at: "n/a".to_string(),
             body: String::new(),
         }];
@@ -265,11 +272,17 @@ pub fn reviewer_decisions_or_none(values: Vec<ReviewerDecision>) -> Vec<ReviewDe
 
     values
         .into_iter()
-        .map(|value| ReviewDecisionView {
-            reviewer: value.reviewer,
-            state: value.state,
-            submitted_at: value.submitted_at,
-            body: value.body,
+        .map(|value| {
+            let state = value.state;
+            let tone = super::helpers::review_decision_tone(&state);
+
+            ReviewDecisionView {
+                reviewer: value.reviewer,
+                state,
+                tone,
+                submitted_at: value.submitted_at,
+                body: value.body,
+            }
         })
         .collect()
 }

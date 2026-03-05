@@ -3,15 +3,15 @@
 {% block title %}{{ model.page_title }}{% endblock %}
 
 {% block content %}
-<main class="page">
-  <section class="panel page-header dense-header">
+<main class="page page-list">
+  <section class="panel page-header list-hero">
     <div>
       <p class="eyebrow">Search Scope</p>
       <h1 class="page-title">Pull Requests</h1>
+      <p class="meta">
+        {{ model.source_label }} · gh: <strong>{{ model.gh_version }}</strong> · hosts: <strong>{{ model.authenticated_hosts }}</strong>
+      </p>
     </div>
-    <p class="meta">
-      {{ model.source_label }} · gh: <strong>{{ model.gh_version }}</strong> · hosts: <strong>{{ model.authenticated_hosts }}</strong>
-    </p>
     <p class="meta count-pill">{{ model.row_count }} results</p>
   </section>
 
@@ -19,102 +19,98 @@
   <section class="panel flash flash-{{ flash.kind }}">{{ flash.message }}</section>
   {% endif %}
 
-  <section class="panel tabs-shell">
-    <nav class="tab-strip" aria-label="Pull request states">
-      {% for tab in model.tabs %}
-      <a class="tab-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
-      {% endfor %}
-    </nav>
-  </section>
+  <section class="list-layout">
+    <aside class="panel filter-rail">
+      <header class="section-head rail-head">
+        <h2>Filters</h2>
+        <p>Saved in local browser storage.</p>
+      </header>
 
-  <section class="panel">
-    <header class="section-head">
-      <h2>Filters</h2>
-      <p>Cross-repo search on your accessible repos.</p>
-    </header>
+      <pr-filter-state form-id="pr-filter-form" reset-id="pr-filter-reset" chips-id="recent-repo-chips" datalist-id="recent-repo-list"></pr-filter-state>
 
-    <form method="get" action="/prs" class="filter-form">
-      <label for="filter-org">Org</label>
-      <input id="filter-org" type="text" name="org" value="{{ model.filters.org }}" placeholder="owner" />
+      <form id="pr-filter-form" method="get" action="/prs" class="filter-form">
+        <label for="filter-org">Org</label>
+        <input id="filter-org" type="text" name="org" value="{{ model.filters.org }}" placeholder="owner" />
 
-      <label for="filter-repo">Repo</label>
-      <input id="filter-repo" type="text" name="repo" value="{{ model.filters.repo }}" placeholder="owner/repo" />
+        <label for="filter-repo">Repo</label>
+        <input id="filter-repo" type="text" name="repo" value="{{ model.filters.repo }}" placeholder="owner/repo" list="recent-repo-list" />
+        <datalist id="recent-repo-list"></datalist>
 
-      <label for="filter-status">Status</label>
-      <select id="filter-status" name="status">
-        <option value="all" {% if model.filters.status == "all" %}selected{% endif %}>All</option>
-        <option value="open" {% if model.filters.status == "open" %}selected{% endif %}>Open</option>
-        <option value="closed" {% if model.filters.status == "closed" %}selected{% endif %}>Closed</option>
-        <option value="merged" {% if model.filters.status == "merged" %}selected{% endif %}>Merged</option>
-      </select>
+        <div class="recent-repo-wrap">
+          <p class="meta">Recent repos</p>
+          <div id="recent-repo-chips" class="chip-row" hidden></div>
+        </div>
 
-      <label for="filter-title">Title</label>
-      <input id="filter-title" type="text" name="title" value="{{ model.filters.title }}" placeholder="keyword" />
+        <label for="filter-status">Status</label>
+        <select id="filter-status" name="status">
+          <option value="all" {% if model.filters.status == "all" %}selected{% endif %}>All</option>
+          <option value="open" {% if model.filters.status == "open" %}selected{% endif %}>Open</option>
+          <option value="closed" {% if model.filters.status == "closed" %}selected{% endif %}>Closed</option>
+          <option value="merged" {% if model.filters.status == "merged" %}selected{% endif %}>Merged</option>
+        </select>
 
-      <label for="filter-author">Author</label>
-      <input id="filter-author" type="text" name="author" value="{{ model.filters.author }}" placeholder="login" />
+        <label for="filter-title">Title</label>
+        <input id="filter-title" type="text" name="title" value="{{ model.filters.title }}" placeholder="keyword" />
 
-      <label for="filter-sort">Sort</label>
-      <select id="filter-sort" name="sort">
-        <option value="updated" {% if model.filters.sort == "updated" %}selected{% endif %}>Updated</option>
-        <option value="created" {% if model.filters.sort == "created" %}selected{% endif %}>Created</option>
-        <option value="comments" {% if model.filters.sort == "comments" %}selected{% endif %}>Comments</option>
-      </select>
+        <label for="filter-author">Author</label>
+        <input id="filter-author" type="text" name="author" value="{{ model.filters.author }}" placeholder="login" />
 
-      <label for="filter-order">Order</label>
-      <select id="filter-order" name="order">
-        <option value="desc" {% if model.filters.order == "desc" %}selected{% endif %}>Desc</option>
-        <option value="asc" {% if model.filters.order == "asc" %}selected{% endif %}>Asc</option>
-      </select>
+        <label for="filter-sort">Sort</label>
+        <select id="filter-sort" name="sort">
+          <option value="updated" {% if model.filters.sort == "updated" %}selected{% endif %}>Updated</option>
+          <option value="created" {% if model.filters.sort == "created" %}selected{% endif %}>Created</option>
+          <option value="comments" {% if model.filters.sort == "comments" %}selected{% endif %}>Comments</option>
+        </select>
 
-      <div class="filter-actions">
-        <button type="submit">Apply</button>
-        <a href="/prs">Reset</a>
-      </div>
-    </form>
-  </section>
+        <label for="filter-order">Order</label>
+        <select id="filter-order" name="order">
+          <option value="desc" {% if model.filters.order == "desc" %}selected{% endif %}>Desc</option>
+          <option value="asc" {% if model.filters.order == "asc" %}selected{% endif %}>Asc</option>
+        </select>
 
-  <section class="panel">
-    <header class="section-head">
-      <h2>Pull Requests</h2>
-      <p>Showing up to 100 pull requests per query.</p>
-    </header>
-    {% if model.rows.is_empty() %}
-    <p class="empty">No pull requests found.</p>
-    {% else %}
-    <div class="table-wrap">
-      <table class="pr-table">
-        <thead>
-          <tr>
-            <th>Repository</th>
-            <th>#</th>
-            <th>Title</th>
-            <th>State</th>
-            <th>Author</th>
-            <th>Comments</th>
-            <th>Updated</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in model.rows %}
-          <tr>
-            <td>{{ row.repo_name_with_owner }}</td>
-            <td><a href="{{ row.detail_path }}">#{{ row.number }}</a></td>
-            <td><a href="{{ row.detail_path }}">{{ row.title }}</a></td>
-            <td><span class="badge">{{ row.state_label }}</span></td>
-            <td>{{ row.author }}</td>
-            <td>{{ row.comment_count }}</td>
-            <td>{{ row.updated_at }}</td>
-          </tr>
+        <div class="filter-actions">
+          <button type="submit">Apply</button>
+          <a id="pr-filter-reset" href="/prs">Reset</a>
+        </div>
+      </form>
+    </aside>
+
+    <section class="panel list-pane">
+      <header class="section-head list-pane-head">
+        <div>
+          <h2>Pull Requests</h2>
+          <p>Showing up to 100 pull requests per query.</p>
+        </div>
+        <nav class="tab-strip tab-strip-inline" aria-label="Pull request states">
+          {% for tab in model.tabs %}
+          <a class="tab-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
           {% endfor %}
-        </tbody>
-      </table>
-    </div>
+        </nav>
+      </header>
 
-    {% if model.has_results_limit_warning %}
-    <p class="meta subtle-note">Some results may be hidden.</p>
-    {% endif %}
-    {% endif %}
+      {% if model.rows.is_empty() %}
+      <p class="empty">No pull requests found.</p>
+      {% else %}
+      <ul class="pr-list">
+        {% for row in model.rows %}
+        <li class="pr-item">
+          <article>
+            <div class="pr-item-top">
+              <p class="meta repo-meta">{{ row.repo_name_with_owner }}</p>
+              <span class="badge {{ row.state_tone }}">{{ row.state_label }}</span>
+            </div>
+            <h3 class="pr-title"><a href="{{ row.detail_path }}">#{{ row.number }} · {{ row.title }}</a></h3>
+            <p class="meta pr-item-meta">author: <strong>{{ row.author }}</strong> · comments: <strong>{{ row.comment_count }}</strong> · updated: {{ row.updated_at }}</p>
+          </article>
+        </li>
+        {% endfor %}
+      </ul>
+
+      {% if model.has_results_limit_warning %}
+      <p class="meta subtle-note">Some results may be hidden.</p>
+      {% endif %}
+      {% endif %}
+    </section>
   </section>
 </main>
 {% endblock %}

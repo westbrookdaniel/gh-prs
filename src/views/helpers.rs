@@ -15,6 +15,53 @@ pub fn state_label(state: String, is_draft: bool) -> String {
     }
 }
 
+pub fn pr_state_tone(state: &str, is_draft: bool) -> String {
+    if is_draft {
+        return "state-draft".to_string();
+    }
+
+    match state.trim().to_ascii_uppercase().as_str() {
+        "OPEN" => "state-open".to_string(),
+        "MERGED" => "state-merged".to_string(),
+        "CLOSED" => "state-closed".to_string(),
+        _ => "state-neutral".to_string(),
+    }
+}
+
+pub fn review_decision_tone(value: &str) -> String {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "APPROVED" => "state-approved".to_string(),
+        "CHANGES_REQUESTED" => "state-conflict".to_string(),
+        "REVIEW_REQUIRED" => "state-open".to_string(),
+        "NONE" | "" => "state-neutral".to_string(),
+        _ => "state-neutral".to_string(),
+    }
+}
+
+pub fn merge_state_tone(merge_state_status: &str, mergeable: &str) -> String {
+    let merge_state = merge_state_status.trim().to_ascii_uppercase();
+    let mergeable = mergeable.trim().to_ascii_uppercase();
+
+    if merge_state.contains("CONFLICT") || mergeable.contains("CONFLICT") {
+        return "state-conflict".to_string();
+    }
+
+    if merge_state == "CLEAN" || mergeable == "MERGEABLE" {
+        return "state-merge".to_string();
+    }
+
+    "state-neutral".to_string()
+}
+
+pub fn review_state_tone(state: &str) -> String {
+    match state.trim().to_ascii_uppercase().as_str() {
+        "APPROVED" => "state-approved".to_string(),
+        "CHANGES_REQUESTED" => "state-conflict".to_string(),
+        "COMMENTED" => "state-open".to_string(),
+        _ => "state-neutral".to_string(),
+    }
+}
+
 pub fn detail_path_from_repo(repo: &str, number: u64, query: Option<&str>) -> String {
     let base = if let Some((owner, name)) = repo.split_once('/') {
         format!("/repos/{owner}/{name}/prs/{number}")

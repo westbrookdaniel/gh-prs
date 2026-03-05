@@ -4,13 +4,16 @@
 
 {% block content %}
 <main class="page changes-page">
-  <section class="panel page-header">
-    <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
-    <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a></p>
+  <section class="panel page-header detail-hero">
+    <div class="detail-hero-top">
+      <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
+      <div class="hero-badges">
+        <span class="badge {{ model.header.state_tone }}">{{ model.header.state_label }}</span>
+        <span class="badge {{ model.header.merge_state_tone }}">{{ model.header.merge_state_status }}</span>
+      </div>
+    </div>
     <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
-    <p class="meta">
-      state: <strong>{{ model.header.state_label }}</strong> · {{ model.header.draft_label }} · files: <strong>{{ model.header.file_count }}</strong>
-    </p>
+    <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a> · {{ model.header.draft_label }} · files: <strong>{{ model.header.file_count }}</strong></p>
   </section>
 
   {% if let Some(flash) = model.flash %}
@@ -45,7 +48,7 @@
         <details {% if !file.is_collapsed %}open{% endif %}>
           <summary>
             <span class="diff-file-name">{{ file.filename }}</span>
-            <span class="meta">{{ file.status }} · +{{ file.additions }} -{{ file.deletions }} · {{ file.changes }} changes</span>
+            <span class="meta"><span class="badge">{{ file.status }}</span> · +{{ file.additions }} -{{ file.deletions }} · {{ file.changes }} changes</span>
           </summary>
 
           {% if let Some(previous) = file.previous_filename %}

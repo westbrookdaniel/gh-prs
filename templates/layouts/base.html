@@ -8,6 +8,13 @@
   </head>
   <body>
     <div class="surface-grain"></div>
+    <header class="app-frame">
+      <div class="app-frame-inner">
+        <a href="/prs" class="app-mark">gh-prs</a>
+        <theme-toggle></theme-toggle>
+      </div>
+    </header>
     {% block content %}{% endblock %}
+    <script type="module" src="/assets/app.js"></script>
   </body>
 </html>

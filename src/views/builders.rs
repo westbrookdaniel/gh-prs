@@ -6,7 +6,8 @@ use crate::gh::models::{
 use crate::search::SearchArgs;
 use crate::views::helpers::{
     build_detail_tabs, build_list_tabs, default_list_back_href, detail_path_from_repo,
-    diff_files_view, repo_action_path, state_label,
+    diff_files_view, merge_state_tone, pr_state_tone, repo_action_path, review_decision_tone,
+    review_state_tone, state_label,
 };
 use crate::views::types::{
     DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView, PrChangesPageModel,
@@ -34,7 +35,8 @@ pub fn list_page_model(
                 original_query.as_deref(),
             ),
             title: item.title,
-            state_label: state_label(item.state, item.is_draft),
+            state_label: state_label(item.state.clone(), item.is_draft),
+            state_tone: pr_state_tone(&item.state, item.is_draft),
             author: item.author,
             updated_at: item.updated_at,
             comment_count: item.comment_count,
@@ -157,6 +159,7 @@ fn detail_header(detail: &crate::gh::models::PullRequestDetail) -> DetailHeaderV
         number: detail.number,
         title: detail.title.clone(),
         state_label: detail.state.clone(),
+        state_tone: pr_state_tone(&detail.state, detail.is_draft),
         draft_label: if detail.is_draft {
             "DRAFT".to_string()
         } else {
@@ -169,11 +172,15 @@ fn detail_header(detail: &crate::gh::models::PullRequestDetail) -> DetailHeaderV
         base_ref_name: detail.base_ref_name.clone(),
         head_ref_name: detail.head_ref_name.clone(),
         merge_state_status: detail.merge_state_status.clone(),
+        merge_state_tone: merge_state_tone(&detail.merge_state_status, &detail.mergeable),
         mergeable: detail.mergeable.clone(),
         review_decision: detail
             .review_decision
             .clone()
             .unwrap_or_else(|| "NONE".to_string()),
+        review_decision_tone: review_decision_tone(
+            detail.review_decision.as_deref().unwrap_or("NONE"),
+        ),
         commit_count: detail.commit_count,
         file_count: detail.file_count,
     }
@@ -195,12 +202,18 @@ fn map_issue_comments(values: Vec<IssueComment>) -> Vec<IssueCommentView> {
 fn map_reviews(values: Vec<PullRequestReview>) -> Vec<PullRequestReviewView> {
     values
         .into_iter()
-        .map(|value| PullRequestReviewView {
-            author: value.author,
-            state: value.state,
-            body: value.body,
-            submitted_at: value.submitted_at,
-            url: value.url,
+        .map(|value| {
+            let state = value.state;
+            let tone = review_state_tone(&state);
+
+            PullRequestReviewView {
+                author: value.author,
+                state,
+                tone,
+                body: value.body,
+                submitted_at: value.submitted_at,
+                url: value.url,
+            }
         })
         .collect()
 }
