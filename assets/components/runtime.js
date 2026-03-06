@@ -12,5 +12,11 @@ export function guardedNavigate(url) {
     return;
   }
   lastNavigationAt = now;
+
+  if (typeof window.__ghprsNavigate === "function") {
+    window.__ghprsNavigate(url);
+    return;
+  }
+
   window.location.assign(url);
 }
