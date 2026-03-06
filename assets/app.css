@@ -208,6 +208,14 @@ summary:focus-visible,
   width: min(1260px, 100%);
 }
 
+.stream-status:empty {
+  display: none;
+}
+
+.stream-status {
+  display: block;
+}
+
 .page-header {
   padding: var(--card-padding);
 }
@@ -465,6 +473,103 @@ summary:focus-visible,
 .empty {
   margin: 0;
   color: var(--text-muted);
+}
+
+.skeleton {
+  display: block;
+  border-radius: 10px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--surface-soft) 82%, transparent) 30%,
+    color-mix(in srgb, var(--surface-strong) 90%, transparent) 50%,
+    color-mix(in srgb, var(--surface-soft) 82%, transparent) 70%
+  );
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.2s linear infinite;
+}
+
+.skeleton-line {
+  height: 0.74rem;
+  margin: 0;
+}
+
+.skeleton-line-lg {
+  height: 1rem;
+}
+
+.skeleton-line-short {
+  width: 62%;
+}
+
+.skeleton-pill {
+  width: 5.2rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  margin: 0;
+}
+
+.skeleton-pill-wide {
+  width: 10rem;
+}
+
+.skeleton-avatar {
+  width: 1.84rem;
+  height: 1.84rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.skeleton-repo {
+  width: 8.2rem;
+  margin-bottom: 0.24rem;
+}
+
+.skeleton-title {
+  width: 82%;
+  margin-bottom: 0.22rem;
+}
+
+.skeleton-meta {
+  width: 68%;
+}
+
+.pr-list-skeleton .pr-item {
+  pointer-events: none;
+}
+
+.skeleton-stack {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.detail-skeleton-stack {
+  display: grid;
+  gap: 0.58rem;
+}
+
+.skeleton-card-block {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  padding: 0.72rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }
 
 .subtle-note {

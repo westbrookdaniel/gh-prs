@@ -3,102 +3,10 @@
 {% block title %}{{ model.page_title }}{% endblock %}
 
 {% block content %}
-<main class="page page-list page-consistent">
-  {% if let Some(flash) = model.flash %}
-  <cp-alert tone="{{ flash.kind }}">{{ flash.message }}</cp-alert>
-  {% endif %}
-
-  <cp-card class="list-pane full-width-pane">
-    <cp-pr-filter-state form-id="pr-filter-form" reset-id="pr-filter-reset" combo-id="repo-combobox"></cp-pr-filter-state>
-
-    <header class="section-head list-pane-head">
-      <form id="pr-filter-form" method="get" action="/prs" class="toolbar-form">
-        <nav class="tab-strip tab-strip-inline" aria-label="Pull request states">
-          {% for tab in model.tabs %}
-          <a class="pill-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
-          {% endfor %}
-        </nav>
-
-        <cp-combobox id="repo-combobox" source-selector="#repo-options-source" input-name="repo" placeholder="Search repos..." empty-label="All repos" no-results-label="No repos found" class="toolbar-combo"></cp-combobox>
-        <select id="repo-options-source" class="repo-option-source" hidden multiple>
-          {% for option in model.repo_options %}
-          <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}></option>
-          {% endfor %}
-        </select>
-
-        <input id="filter-title" class="toolbar-input" type="text" name="title" value="{{ model.filters.title }}" placeholder="Search title" />
-        <input id="filter-author" class="toolbar-input" type="text" name="author" value="{{ model.filters.author }}" placeholder="Search author" />
-
-        <cp-combobox id="status-combobox" source-selector="#status-options-source" input-name="status" placeholder="Select status" empty-label="Status" no-results-label="No statuses found" class="toolbar-combo single"></cp-combobox>
-        <select id="status-options-source" hidden>
-          <option value="all" {% if model.filters.status == "all" %}selected{% endif %}>All</option>
-          <option value="open" {% if model.filters.status == "open" %}selected{% endif %}>Open</option>
-          <option value="closed" {% if model.filters.status == "closed" %}selected{% endif %}>Closed</option>
-          <option value="merged" {% if model.filters.status == "merged" %}selected{% endif %}>Merged</option>
-        </select>
-
-        <input type="hidden" name="sort" value="{{ model.filters.sort }}" />
-        <input type="hidden" name="order" value="{{ model.filters.order }}" />
-
-        <div class="toolbar-actions">
-          <cp-button type="submit" variant="default">Apply</cp-button>
-          <cp-button id="pr-filter-reset" href="/prs" variant="ghost">Reset</cp-button>
-        </div>
-      </form>
-
-      <div class="sort-strip" aria-label="Sort pull requests">
-        {% for sort in model.sort_controls %}
-        <a href="{{ sort.href }}" class="pill-link pill-sort {% if sort.selected %}is-active{% endif %}">
-          <span>{{ sort.label }}</span>
-          {% if sort.direction == "up" %}
-          <span aria-hidden="true">↑</span>
-          {% else if sort.direction == "down" %}
-          <span aria-hidden="true">↓</span>
-          {% else %}
-          <span aria-hidden="true">↕</span>
-          {% endif %}
-        </a>
-        {% endfor %}
-      </div>
-    </header>
-
-    {% if model.rows.is_empty() %}
-    <p class="empty">No pull requests found.</p>
-    {% else %}
-    <ul class="pr-list">
-      {% for row in model.rows %}
-      <li class="pr-item">
-        <article>
-          <div class="pr-item-top">
-            <div class="pr-author-avatar" aria-hidden="true" style="{{ row.author_avatar_style }}">
-              {% if row.author_avatar_fallback %}
-              <span class="avatar-fallback">{{ row.author_initial }}</span>
-              {% else %}
-              <img src="{{ row.author_avatar_url }}" alt="" loading="lazy" onerror="this.closest('.pr-author-avatar').classList.add('is-fallback')" />
-              {% endif %}
-            </div>
-            <div class="pr-item-main">
-              <div class="pr-item-headline">
-                <p class="meta repo-meta">{{ row.repo_name_with_owner }}</p>
-                <cp-badge tone="{{ row.state_tone }}" title="{{ row.state_tooltip }}">{{ row.state_label }}</cp-badge>
-              </div>
-              <h3 class="pr-title"><a href="{{ row.detail_path }}">#{{ row.number }} · {{ row.title }}</a></h3>
-              <p class="meta pr-item-meta">author: <strong>{{ row.author }}</strong> · comments: <strong>{{ row.comment_count }}</strong> · updated: {{ row.updated_at }}</p>
-            </div>
-          </div>
-        </article>
-      </li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-
-    <footer class="list-footnote-row">
-      {% if model.has_results_limit_warning %}
-      <p class="meta subtle-note">Some results may be hidden.</p>
-      {% else %}
-      <p class="meta subtle-note text-right">{{ model.row_count }} results</p>
-      {% endif %}
-    </footer>
-  </cp-card>
+<main class="page page-list page-consistent" data-init="@get('{{ model.refresh_sse_path }}', {openWhenHidden: true, retry: 'never'})">
+  <section id="stream-status" class="stream-status" aria-live="polite"></section>
+  <div id="pr-list-content">
+    {% include "pages/fragments/pr_list_content.html" %}
+  </div>
 </main>
 {% endblock %}

@@ -1,0 +1,62 @@
+{% if let Some(flash) = model.flash %}
+<cp-alert tone="{{ flash.kind }}">{{ flash.message }}</cp-alert>
+{% endif %}
+
+<cp-card class="list-pane full-width-pane">
+  <cp-pr-filter-state form-id="pr-filter-form" reset-id="pr-filter-reset" combo-id="repo-combobox"></cp-pr-filter-state>
+
+  <header class="section-head list-pane-head">
+    <form id="pr-filter-form" method="get" action="/prs" class="toolbar-form">
+      <nav class="tab-strip tab-strip-inline" aria-label="Pull request states">
+        {% for tab in model.tabs %}
+        <a class="pill-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
+        {% endfor %}
+      </nav>
+
+      <cp-combobox id="repo-combobox" source-selector="#repo-options-source" input-name="repo" placeholder="Search repos..." empty-label="All repos" no-results-label="No repos found" class="toolbar-combo"></cp-combobox>
+      <select id="repo-options-source" class="repo-option-source" hidden multiple>
+        {% for option in model.repo_options %}
+        <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}></option>
+        {% endfor %}
+      </select>
+
+      <input id="filter-title" class="toolbar-input" type="text" name="title" value="{{ model.filters.title }}" placeholder="Search title" />
+      <input id="filter-author" class="toolbar-input" type="text" name="author" value="{{ model.filters.author }}" placeholder="Search author" />
+
+      <cp-combobox id="status-combobox" source-selector="#status-options-source" input-name="status" placeholder="Select status" empty-label="Status" no-results-label="No statuses found" class="toolbar-combo single"></cp-combobox>
+      <select id="status-options-source" hidden>
+        <option value="all" {% if model.filters.status == "all" %}selected{% endif %}>All</option>
+        <option value="open" {% if model.filters.status == "open" %}selected{% endif %}>Open</option>
+        <option value="closed" {% if model.filters.status == "closed" %}selected{% endif %}>Closed</option>
+        <option value="merged" {% if model.filters.status == "merged" %}selected{% endif %}>Merged</option>
+      </select>
+
+      <input type="hidden" name="sort" value="{{ model.filters.sort }}" />
+      <input type="hidden" name="order" value="{{ model.filters.order }}" />
+
+      <div class="toolbar-actions">
+        <cp-button type="submit" variant="default">Apply</cp-button>
+        <cp-button id="pr-filter-reset" href="/prs" variant="ghost">Reset</cp-button>
+      </div>
+    </form>
+
+    <div class="sort-strip" aria-label="Sort pull requests">
+      {% for sort in model.sort_controls %}
+      <a href="{{ sort.href }}" class="pill-link pill-sort {% if sort.selected %}is-active{% endif %}">
+        <span>{{ sort.label }}</span>
+        {% if sort.direction == "up" %}
+        <span aria-hidden="true">↑</span>
+        {% else if sort.direction == "down" %}
+        <span aria-hidden="true">↓</span>
+        {% else %}
+        <span aria-hidden="true">↕</span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </header>
+
+  <section id="pr-list-results">
+    {% include "pages/fragments/pr_list_results.html" %}
+  </section>
+</cp-card>

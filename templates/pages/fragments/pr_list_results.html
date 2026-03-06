@@ -1,0 +1,70 @@
+{% if model.is_loading %}
+<ul class="pr-list pr-list-skeleton" aria-label="Loading pull requests">
+  <li class="pr-item skeleton-card">
+    <div class="pr-item-top">
+      <span class="skeleton skeleton-avatar" aria-hidden="true"></span>
+      <div class="pr-item-main">
+        <p class="skeleton skeleton-pill skeleton-repo" aria-hidden="true"></p>
+        <p class="skeleton skeleton-line skeleton-title" aria-hidden="true"></p>
+        <p class="skeleton skeleton-line skeleton-meta" aria-hidden="true"></p>
+      </div>
+    </div>
+  </li>
+  <li class="pr-item skeleton-card">
+    <div class="pr-item-top">
+      <span class="skeleton skeleton-avatar" aria-hidden="true"></span>
+      <div class="pr-item-main">
+        <p class="skeleton skeleton-pill skeleton-repo" aria-hidden="true"></p>
+        <p class="skeleton skeleton-line skeleton-title" aria-hidden="true"></p>
+        <p class="skeleton skeleton-line skeleton-meta" aria-hidden="true"></p>
+      </div>
+    </div>
+  </li>
+  <li class="pr-item skeleton-card">
+    <div class="pr-item-top">
+      <span class="skeleton skeleton-avatar" aria-hidden="true"></span>
+      <div class="pr-item-main">
+        <p class="skeleton skeleton-pill skeleton-repo" aria-hidden="true"></p>
+        <p class="skeleton skeleton-line skeleton-title" aria-hidden="true"></p>
+        <p class="skeleton skeleton-line skeleton-meta" aria-hidden="true"></p>
+      </div>
+    </div>
+  </li>
+</ul>
+{% else if model.rows.is_empty() %}
+<p class="empty">No pull requests found.</p>
+{% else %}
+<ul class="pr-list">
+  {% for row in model.rows %}
+  <li class="pr-item">
+    <article>
+      <div class="pr-item-top">
+        <div class="pr-author-avatar" aria-hidden="true" style="{{ row.author_avatar_style }}">
+          {% if row.author_avatar_fallback %}
+          <span class="avatar-fallback">{{ row.author_initial }}</span>
+          {% else %}
+          <img src="{{ row.author_avatar_url }}" alt="" loading="lazy" onerror="this.closest('.pr-author-avatar').classList.add('is-fallback')" />
+          {% endif %}
+        </div>
+        <div class="pr-item-main">
+          <div class="pr-item-headline">
+            <p class="meta repo-meta">{{ row.repo_name_with_owner }}</p>
+            <cp-badge tone="{{ row.state_tone }}" title="{{ row.state_tooltip }}">{{ row.state_label }}</cp-badge>
+          </div>
+          <h3 class="pr-title"><a href="{{ row.detail_path }}">#{{ row.number }} · {{ row.title }}</a></h3>
+          <p class="meta pr-item-meta">author: <strong>{{ row.author }}</strong> · comments: <strong>{{ row.comment_count }}</strong> · updated: {{ row.updated_at }}</p>
+        </div>
+      </div>
+    </article>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<footer class="list-footnote-row">
+  {% if model.has_results_limit_warning %}
+  <p class="meta subtle-note">Some results may be hidden.</p>
+  {% else %}
+  <p class="meta subtle-note text-right">{{ model.row_count }} results</p>
+  {% endif %}
+</footer>
