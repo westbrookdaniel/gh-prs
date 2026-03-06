@@ -215,6 +215,8 @@ pub struct DiffTreeItemView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrListPageModel {
     pub page_title: String,
+    pub refresh_sse_path: String,
+    pub is_loading: bool,
     pub row_count: usize,
     pub rows: Vec<PrListRowView>,
     pub repo_options: Vec<RepoOptionView>,
@@ -228,6 +230,8 @@ pub struct PrListPageModel {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrDetailPageModel {
     pub page_title: String,
+    pub refresh_sse_path: String,
+    pub is_loading: bool,
     pub repo_name: String,
     pub repo_url: String,
     pub header: DetailHeaderView,
@@ -255,6 +259,8 @@ pub struct PrDetailPageModel {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrChangesPageModel {
     pub page_title: String,
+    pub refresh_sse_path: String,
+    pub is_loading: bool,
     pub repo_name: String,
     pub repo_url: String,
     pub header: DetailHeaderView,

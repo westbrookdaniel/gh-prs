@@ -3,6 +3,7 @@ use crate::handlers::detail::pull_request_detail;
 use crate::handlers::health::health;
 use crate::handlers::list::list_pull_requests;
 use crate::handlers::not_found::not_found;
+use crate::handlers::stream::{stream_pr_changes, stream_pr_detail, stream_pr_list};
 use crate::handlers::write::{
     merge_pull_request, submit_comment, submit_review, update_pull_request_state, update_reviewers,
 };
@@ -12,13 +13,21 @@ pub fn register(app: App) -> App {
     app.get("/", root_redirect)
         .get("/health", health)
         .get("/prs", list_pull_requests)
+        .get("/streams/prs", stream_pr_list)
         .get("/repos/:owner/:repo/prs/:number", pull_request_detail)
+        .get("/streams/repos/:owner/:repo/prs/:number", stream_pr_detail)
         .get(
             "/repos/:owner/:repo/prs/:number/changes",
             pull_request_changes,
         )
+        .get(
+            "/streams/repos/:owner/:repo/prs/:number/changes",
+            stream_pr_changes,
+        )
         .get("/prs/:number", pull_request_detail)
+        .get("/streams/prs/:number", stream_pr_detail)
         .get("/prs/:number/changes", pull_request_changes)
+        .get("/streams/prs/:number/changes", stream_pr_changes)
         .post("/repos/:owner/:repo/prs/:number/comment", submit_comment)
         .post("/prs/:number/comment", submit_comment)
         .post("/repos/:owner/:repo/prs/:number/review", submit_review)

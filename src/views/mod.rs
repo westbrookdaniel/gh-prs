@@ -7,8 +7,7 @@ pub use crate::search::SearchArgs;
 pub use builders::{changes_page_model, detail_page_model, error_page_model, list_page_model};
 pub use templates::{
     ErrorTemplate, NotFoundTemplate, PrChangesContentTemplate, PrChangesTemplate,
-    PrDetailContentTemplate, PrDetailTemplate, PrListContentTemplate, PrListResultsTemplate,
-    PrListTemplate,
+    PrDetailContentTemplate, PrDetailTemplate, PrListResultsTemplate, PrListTemplate,
 };
 pub use types::FlashMessageView;
 

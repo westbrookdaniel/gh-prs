@@ -1,4 +1,6 @@
+mod cache_store;
 mod gh;
+mod gh_parsing;
 mod handlers;
 mod http;
 mod search;
@@ -8,10 +10,11 @@ mod views;
 use crate::handlers::state::set_app_state;
 use crate::handlers::{AppState, register};
 use crate::http::{App, StaticDirOptions, logger, request_id, security_headers, static_dir};
-use crate::startup::{parse_startup_config, run_startup_checks};
+use crate::startup::{init_runtime_storage, parse_startup_config, run_startup_checks};
 use std::io;
 
 fn main() -> io::Result<()> {
+    init_runtime_storage()?;
     let config = parse_startup_config()?;
 
     smol::block_on(async move {

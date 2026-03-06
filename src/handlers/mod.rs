@@ -9,6 +9,7 @@ pub mod list;
 pub mod not_found;
 pub mod routes;
 pub mod state;
+pub mod stream;
 pub mod write;
 
 pub use routes::register;
@@ -25,8 +26,10 @@ mod tests {
     use super::write::{merge_pull_request, submit_comment, update_pull_request_state};
     use crate::gh::GhError;
     use crate::gh::client::{CommandResult, CommandRunner, GhClient};
+    use crate::gh::models::PullRequestStatus;
     use crate::gh::models::RepoContext;
     use crate::http::{Request, Response};
+    use crate::search::SearchArgs;
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::Duration;
@@ -35,6 +38,12 @@ mod tests {
 
     fn test_lock() -> &'static Mutex<()> {
         TEST_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn acquire_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     #[derive(Default)]
@@ -125,7 +134,7 @@ mod tests {
     #[test]
     fn root_redirects_to_pr_list() {
         smol::block_on(async {
-            let _guard = test_lock().lock().expect("test lock");
+            let _guard = acquire_test_lock();
             let response =
                 root_redirect(request("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")).await;
             assert_eq!(response.status_code(), 303);
@@ -136,10 +145,8 @@ mod tests {
     #[test]
     fn list_handler_renders_rows() {
         smol::block_on(async {
-            let _guard = test_lock().lock().expect("test lock");
-            set_app_state(state_with_responses(vec![
-                ok(""),
-                ok("[]"),
+            let _guard = acquire_test_lock();
+            let state = state_with_responses(vec![
                 ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
@@ -154,7 +161,13 @@ mod tests {
                     "commentsCount":2
                 }
             ]"#),
-            ]));
+            ]);
+            state
+                .gh
+                .refresh_search_pull_requests(&SearchArgs::default())
+                .await
+                .expect("prime search cache");
+            set_app_state(state);
 
             let response =
                 list_pull_requests(request("GET /prs HTTP/1.1\r\nHost: localhost\r\n\r\n")).await;
@@ -170,8 +183,8 @@ mod tests {
     #[test]
     fn detail_handler_renders_sections() {
         smol::block_on(async {
-            let _guard = test_lock().lock().expect("test lock");
-            set_app_state(state_with_responses(vec![
+            let _guard = acquire_test_lock();
+            let state = state_with_responses(vec![
                 ok(r#"{
                     "number":7,
                     "title":"Improve auth",
@@ -196,7 +209,13 @@ mod tests {
                 ok("[]"),
                 ok("[]"),
                 ok("[]"),
-            ]));
+            ]);
+            state
+                .gh
+                .refresh_pull_request_conversation("acme/widgets", 7)
+                .await
+                .expect("prime conversation cache");
+            set_app_state(state);
 
             let response = pull_request_detail(
                 request_with_number(
@@ -226,8 +245,8 @@ mod tests {
     #[test]
     fn changes_handler_renders_diff_tab() {
         smol::block_on(async {
-            let _guard = test_lock().lock().expect("test lock");
-            set_app_state(state_with_responses(vec![
+            let _guard = acquire_test_lock();
+            let state = state_with_responses(vec![
                 ok(r#"{
                     "number":7,
                     "title":"Improve auth",
@@ -263,7 +282,18 @@ mod tests {
                         "blob_url":"https://example/blob"
                     }
                 ]"#),
-            ]));
+            ]);
+            state
+                .gh
+                .refresh_pull_request_conversation("acme/widgets", 7)
+                .await
+                .expect("prime conversation cache");
+            state
+                .gh
+                .refresh_pull_request_files("acme/widgets", 7)
+                .await
+                .expect("prime files cache");
+            set_app_state(state);
 
             let response = pull_request_changes(
                 request_with_number(
@@ -292,7 +322,7 @@ mod tests {
     #[test]
     fn comment_post_redirects_with_success_flash() {
         smol::block_on(async {
-            let _guard = test_lock().lock().expect("test lock");
+            let _guard = acquire_test_lock();
             set_app_state(state_with_responses(vec![ok("")]));
             let raw = "POST /repos/acme/widgets/prs/7/comment?org=acme HTTP/1.1\r\nHost: localhost\r\nContent-Length: 15\r\n\r\nbody=hello+team";
             let response = submit_comment(
@@ -318,7 +348,7 @@ mod tests {
     #[test]
     fn merge_post_redirects_with_success_flash() {
         smol::block_on(async {
-            let _guard = test_lock().lock().expect("test lock");
+            let _guard = acquire_test_lock();
             set_app_state(state_with_responses(vec![ok("")]));
 
             let response = merge_pull_request(
@@ -347,7 +377,7 @@ mod tests {
     #[test]
     fn state_post_redirects_with_success_flash() {
         smol::block_on(async {
-            let _guard = test_lock().lock().expect("test lock");
+            let _guard = acquire_test_lock();
             set_app_state(state_with_responses(vec![ok("")]));
 
             let response = update_pull_request_state(
@@ -376,7 +406,7 @@ mod tests {
     #[test]
     fn health_reports_degraded_when_startup_failed() {
         smol::block_on(async {
-            let _guard = test_lock().lock().expect("test lock");
+            let _guard = acquire_test_lock();
             set_app_state(AppState {
                 gh: GhClient::with_runner(Arc::new(MockRunner::default()), Duration::from_secs(3)),
                 startup_repo: None,
@@ -396,10 +426,8 @@ mod tests {
     #[test]
     fn list_links_preserve_query_context() {
         smol::block_on(async {
-            let _guard = test_lock().lock().expect("test lock");
-            set_app_state(state_with_responses(vec![
-                ok(""),
-                ok("[]"),
+            let _guard = acquire_test_lock();
+            let state = state_with_responses(vec![
                 ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
@@ -414,7 +442,18 @@ mod tests {
                     "commentsCount":2
                 }
             ]"#),
-            ]));
+            ]);
+            let query = SearchArgs {
+                org: Some("acme".to_string()),
+                status: PullRequestStatus::Open,
+                ..SearchArgs::default()
+            };
+            state
+                .gh
+                .refresh_search_pull_requests(&query)
+                .await
+                .expect("prime filtered search cache");
+            set_app_state(state);
 
             let response = list_pull_requests(request(
                 "GET /prs?org=acme&status=open HTTP/1.1\r\nHost: localhost\r\n\r\n",

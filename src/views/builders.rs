@@ -9,7 +9,8 @@ use crate::views::helpers::{
     diff_files_view, format_timestamp, markdown_to_html, merge_conversation_feed,
     merge_state_explainer, merge_state_tone, merge_state_tooltip, pr_state_tone, pr_state_tooltip,
     repo_action_path, review_decision_tone, review_decision_tooltip, review_state_tone,
-    sort_controls, state_label,
+    sort_controls, state_label, stream_changes_path_from_repo, stream_detail_path_from_repo,
+    stream_list_path,
 };
 use crate::views::types::{
     checks_view, DetailHeaderView, ErrorPageModel, FilterFormView, IssueCommentView,
@@ -23,6 +24,7 @@ pub fn list_page_model(
     query: &SearchArgs,
     available_repos: Vec<String>,
     items: Vec<PullRequestSearchItem>,
+    is_loading: bool,
     flash: Option<crate::views::types::FlashMessageView>,
     _request: &crate::http::Request,
 ) -> PrListPageModel {
@@ -57,6 +59,8 @@ pub fn list_page_model(
 
     PrListPageModel {
         page_title: "Pull Requests Across Your Repos".to_string(),
+        refresh_sse_path: stream_list_path(query),
+        is_loading,
         row_count: rows.len(),
         repo_options: available_repos
             .iter()
@@ -85,6 +89,7 @@ pub fn list_page_model(
 pub fn detail_page_model(
     repo: &RepoContext,
     conversation: PullRequestConversation,
+    is_loading: bool,
     flash: Option<crate::views::types::FlashMessageView>,
     request: &crate::http::Request,
 ) -> PrDetailPageModel {
@@ -168,6 +173,12 @@ pub fn detail_page_model(
 
     PrDetailPageModel {
         page_title: format!("PR #{}", detail.number),
+        refresh_sse_path: stream_detail_path_from_repo(
+            &repo.name_with_owner,
+            detail.number,
+            query.as_deref(),
+        ),
+        is_loading,
         repo_name: repo.name_with_owner.clone(),
         repo_url: repo.url.clone(),
         tabs: build_detail_tabs(repo, detail.number, query.as_deref(), false),
@@ -222,6 +233,7 @@ pub fn changes_page_model(
     repo: &RepoContext,
     detail: crate::gh::models::PullRequestDetail,
     files: Vec<PullRequestFile>,
+    is_loading: bool,
     flash: Option<crate::views::types::FlashMessageView>,
     request: &crate::http::Request,
 ) -> PrChangesPageModel {
@@ -231,6 +243,12 @@ pub fn changes_page_model(
 
     PrChangesPageModel {
         page_title: format!("PR #{} Changes", detail.number),
+        refresh_sse_path: stream_changes_path_from_repo(
+            &repo.name_with_owner,
+            detail.number,
+            query.as_deref(),
+        ),
+        is_loading,
         repo_name: repo.name_with_owner.clone(),
         repo_url: repo.url.clone(),
         tabs: build_detail_tabs(repo, detail.number, query.as_deref(), true),

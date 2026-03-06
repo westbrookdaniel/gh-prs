@@ -31,17 +31,46 @@ pub async fn pull_request_changes(request: Request) -> Response {
         Err(err) => return render_gh_error(err),
     };
 
-    let conversation = match state.gh.pull_request_conversation(&repo_name, number).await {
+    let maybe_conversation = match state
+        .gh
+        .cached_pull_request_conversation(&repo_name, number)
+        .await
+    {
+        Ok(value) => value,
+        Err(err) => return render_gh_error(err),
+    };
+    let maybe_files = match state.gh.cached_pull_request_files(&repo_name, number).await {
         Ok(value) => value,
         Err(err) => return render_gh_error(err),
     };
 
-    let files = match state.gh.pull_request_files(&repo_name, number).await {
-        Ok(value) => value,
-        Err(err) => return render_gh_error(err),
-    };
+    let detail = maybe_conversation
+        .map(|cached| cached.value.detail)
+        .unwrap_or(crate::gh::models::PullRequestDetail {
+            number,
+            title: "Loading pull request changes...".to_string(),
+            body: String::new(),
+            state: "OPEN".to_string(),
+            is_draft: false,
+            author: "loading".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            url: format!("https://github.com/{repo_name}/pull/{number}"),
+            base_ref_name: "main".to_string(),
+            head_ref_name: "...".to_string(),
+            merge_state_status: "UNKNOWN".to_string(),
+            mergeable: "UNKNOWN".to_string(),
+            review_decision: None,
+            requested_reviewers: Vec::new(),
+            latest_reviewer_decisions: Vec::new(),
+            checks: crate::gh::models::StatusChecksSummary::default(),
+            commit_count: 0,
+            file_count: 0,
+        });
+    let files = maybe_files.map(|cached| cached.value).unwrap_or_default();
+    let is_loading = files.is_empty();
 
-    let model = changes_page_model(&repo_context, conversation.detail, files, flash, &request);
+    let model = changes_page_model(&repo_context, detail, files, is_loading, flash, &request);
     let template = PrChangesTemplate { model };
     render_template(200, "OK", &template)
 }

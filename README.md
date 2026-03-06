@@ -21,12 +21,26 @@ Optional flags:
 - `--port PORT` (binds to `127.0.0.1:PORT`)
 - `--bind 127.0.0.1:PORT` (explicit bind; localhost only)
 
+## Cache and Streaming
+
+- Persistent cache store: SQLite (`rusqlite`) at `~/.config/gh-prs/cache.db`
+- Override app home/cache directory with `GH_PRS_HOME=/custom/path`
+- Page rendering is cache-first:
+  - list/detail/changes render cached content immediately when present
+  - when cache is missing, pages render a loading shell immediately (no blocking `gh` fetch in request path)
+- Fresh/stale updates are streamed over SSE routes (`/streams/...`) using Datastar patch events
+- Write actions (comment/review/merge/state/reviewers) invalidate PR cache keys so the next refresh stream rehydrates UI
+
 ## Routes
 
 - `GET /` → redirects to `/prs`
 - `GET /health` → JSON health/status payload
 - `GET /prs` → cross-repo PR search list (up to 100) with filters/sort via query params
+- `GET /streams/prs` → SSE refresh stream for the list page
 - `GET /repos/:owner/:repo/prs/:number` → repo-aware PR detail + discussion + review context
+- `GET /streams/repos/:owner/:repo/prs/:number` → SSE refresh stream for detail page
+- `GET /repos/:owner/:repo/prs/:number/changes` → PR file diff view
+- `GET /streams/repos/:owner/:repo/prs/:number/changes` → SSE refresh stream for changes page
 - `POST /repos/:owner/:repo/prs/:number/comment` → submit top-level PR comment
 - `POST /repos/:owner/:repo/prs/:number/review` → submit review (`approve|comment|request_changes`)
 

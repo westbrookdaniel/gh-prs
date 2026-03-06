@@ -1,6 +1,7 @@
 use crate::gh::GhError;
 use crate::gh::client::GhClient;
 use crate::gh::models::{PreflightDiagnostics, RepoContext};
+use crate::{cache_store, cache_store::SqliteCacheStore};
 use std::env;
 use std::io;
 use std::time::{Duration, Instant};
@@ -24,6 +25,7 @@ pub struct StartupResult {
 pub async fn run_startup_checks(explicit_repo: Option<&str>) -> StartupResult {
     let started = Instant::now();
     let gh = GhClient::default();
+    let _ = gh.cache_db_path();
 
     let diagnostics = match gh.preflight().await {
         Ok(value) => value,
@@ -45,6 +47,15 @@ pub async fn run_startup_checks(explicit_repo: Option<&str>) -> StartupResult {
         startup_error: None,
         startup_elapsed: started.elapsed(),
     }
+}
+
+pub fn init_runtime_storage() -> io::Result<()> {
+    let store = SqliteCacheStore::open_default()?;
+    let _ = smol::block_on(store.prune_expired());
+    let app_home = cache_store::default_app_home()?;
+    println!("[startup] cache home: {}", app_home.display());
+    println!("[startup] cache db: {}", store.db_path().display());
+    Ok(())
 }
 
 pub fn parse_startup_config() -> io::Result<StartupConfig> {
