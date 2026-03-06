@@ -1,4 +1,12 @@
 <cp-card class="page-header detail-hero">
+  {% if model.is_loading %}
+  <div class="detail-hero-top" aria-hidden="true">
+    <p class="skeleton skeleton-line skeleton-line-short"></p>
+    <p class="skeleton skeleton-pill"></p>
+  </div>
+  <p class="skeleton skeleton-line skeleton-line-lg" aria-hidden="true"></p>
+  <p class="skeleton skeleton-line" aria-hidden="true"></p>
+  {% else %}
   <div class="detail-hero-top">
     <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
     <div class="hero-badges">
@@ -9,6 +17,7 @@
   </div>
   <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
   <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a> · files: <strong>{{ model.header.file_count }}</strong></p>
+  {% endif %}
 </cp-card>
 
 {% if let Some(flash) = model.flash %}

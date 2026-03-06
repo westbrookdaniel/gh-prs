@@ -1,4 +1,13 @@
 <cp-card class="page-header detail-hero">
+  {% if model.is_loading %}
+  <div class="detail-hero-top" aria-hidden="true">
+    <p class="skeleton skeleton-line skeleton-line-short"></p>
+    <p class="skeleton skeleton-pill"></p>
+  </div>
+  <p class="skeleton skeleton-line skeleton-line-lg" aria-hidden="true"></p>
+  <p class="skeleton skeleton-line" aria-hidden="true"></p>
+  <p class="skeleton skeleton-line skeleton-line-short" aria-hidden="true"></p>
+  {% else %}
   <div class="detail-hero-top">
     <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
     <details class="header-menu">
@@ -27,6 +36,7 @@
   <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a> · <a href="{{ model.header.url }}">Open on GitHub</a></p>
   <p class="meta">author: <strong>{{ model.header.author }}</strong> · created: {{ model.header.created_at }} · updated: {{ model.header.updated_at }}</p>
   <p class="meta">base: <code>{{ model.header.base_ref_name }}</code> · head: <code>{{ model.header.head_ref_name }}</code> · mergeable: <strong>{{ model.header.mergeable }}</strong></p>
+  {% endif %}
 </cp-card>
 
 {% if let Some(flash) = model.flash %}

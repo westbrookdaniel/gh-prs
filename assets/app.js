@@ -1,5 +1,3 @@
-const NAVIGATION_COOLDOWN_MS = 180;
-let lastNavigationAt = 0;
 let pendingNavigationController = null;
 
 function isPrimaryNavigation(event) {
@@ -122,17 +120,8 @@ function setNavigationPending(isPending) {
 
 async function navigate(urlLike, options = {}) {
   const url = new URL(urlLike, window.location.href);
-  const force = options.force === true;
   const replaceHistory = options.replaceHistory === true;
   const preserveScroll = options.preserveScroll === true;
-
-  if (!force) {
-    const now = Date.now();
-    if (now - lastNavigationAt < NAVIGATION_COOLDOWN_MS) {
-      return;
-    }
-    lastNavigationAt = now;
-  }
 
   if (pendingNavigationController) {
     pendingNavigationController.abort();

@@ -28,9 +28,9 @@
   --radius-md: 14px;
   --radius-lg: 18px;
   --shadow: 0 12px 34px rgba(15, 15, 15, 0.08);
-  --card-padding: 0.84rem;
-  --card-padding-compact: 0.64rem;
-  --section-gap: 0.8rem;
+  --card-padding: 0.96rem;
+  --card-padding-compact: 0.72rem;
+  --section-gap: 0.94rem;
 
   --space-1: 0.24rem;
   --space-2: 0.4rem;
@@ -203,7 +203,7 @@ summary:focus-visible,
 .page {
   width: min(1260px, 100%);
   margin: 0 auto;
-  padding: 1rem 1.1rem 1.12rem;
+  padding: 1.22rem 1.24rem 1.3rem;
   display: grid;
   gap: var(--section-gap);
 }
@@ -405,6 +405,8 @@ summary:focus-visible,
 .pr-item-main {
   min-width: 0;
   flex: 1;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .pr-item-headline {
@@ -458,6 +460,8 @@ summary:focus-visible,
 .repo-meta {
   font-family: var(--font-mono);
   font-size: var(--font-size-xxs);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .pr-title {
@@ -465,10 +469,14 @@ summary:focus-visible,
   font-size: var(--font-size-lg);
   line-height: 1.28;
   font-weight: 500;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .pr-title a {
   text-decoration: none;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .pr-title a:hover {
@@ -477,6 +485,8 @@ summary:focus-visible,
 
 .pr-item-meta {
   margin-top: 0.26rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .empty {
@@ -607,8 +617,6 @@ summary:focus-visible,
 
 .reviewer-sidebar {
   order: 2;
-  position: sticky;
-  top: 4rem;
   align-self: start;
   display: grid;
   gap: 0.58rem;
