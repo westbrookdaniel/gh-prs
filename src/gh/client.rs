@@ -1,5 +1,7 @@
 use crate::cache_store::SqliteCacheStore;
-pub use crate::gh::commands::{CommandResult, GhCommand, MergeMethod, PullRequestStateTransition, ReviewEvent};
+pub use crate::gh::commands::{
+    CommandResult, GhCommand, MergeMethod, PullRequestStateTransition, ReviewEvent,
+};
 use crate::gh::models::{
     MAX_SEARCH_LIMIT, PreflightDiagnostics, PullRequestConversation, PullRequestFile,
     PullRequestSearchItem, PullRequestStatus, RepoContext,
@@ -8,9 +10,7 @@ pub use crate::gh::runner::CommandRunner;
 use crate::gh::runner::SystemCommandRunner;
 use crate::gh::validation::{validate_pr_number, validate_repo_identifier};
 use crate::gh::{CommandClass, GhError, GhResult};
-use crate::gh_parsing::{
-    parse_preflight_auth, parse_pull_request_files, parse_repo_context,
-};
+use crate::gh_parsing::{parse_preflight_auth, parse_pull_request_files, parse_repo_context};
 use crate::search::SearchArgs;
 use serde::{Serialize, de::DeserializeOwned};
 use std::future::Future;
@@ -144,7 +144,10 @@ impl GhClient {
     pub async fn preflight(&self) -> GhResult<PreflightDiagnostics> {
         self.cached_or_refresh("preflight|diagnostics", CACHE_PREFLIGHT, || async {
             let version = self
-                .run_raw_command(CommandClass::PreflightVersion, vec!["--version".to_string()])
+                .run_raw_command(
+                    CommandClass::PreflightVersion,
+                    vec!["--version".to_string()],
+                )
                 .await?;
             let gh_version = version
                 .stdout
@@ -208,7 +211,9 @@ impl GhClient {
                 args.insert(2, repo);
             }
 
-            let result = self.run_raw_command(CommandClass::ResolveRepo, args).await?;
+            let result = self
+                .run_raw_command(CommandClass::ResolveRepo, args)
+                .await?;
             parse_repo_context(&result.stdout).map_err(|details| GhError::ParseFailure {
                 class: CommandClass::ResolveRepo,
                 details,
@@ -277,13 +282,6 @@ impl GhClient {
         self.cache_set("repo|accessible", CACHE_REPO_LIST, &repos)
             .await?;
         Ok(repos)
-    }
-
-    pub async fn accessible_repositories(&self) -> GhResult<Vec<String>> {
-        if let Some(cached) = self.cached_accessible_repositories().await? {
-            return Ok(cached.value);
-        }
-        self.refresh_accessible_repositories().await
     }
 
     pub async fn cached_search_pull_requests(
@@ -355,24 +353,15 @@ impl GhClient {
         let result = self
             .run_raw_command(CommandClass::PullRequestSearch, args)
             .await?;
-        let items = parse_search_items(&result.stdout).map_err(|details| GhError::ParseFailure {
-            class: CommandClass::PullRequestSearch,
-            details,
-        })?;
+        let items =
+            parse_search_items(&result.stdout).map_err(|details| GhError::ParseFailure {
+                class: CommandClass::PullRequestSearch,
+                details,
+            })?;
 
         self.cache_set(&search_cache_key(query), CACHE_SEARCH, &items)
             .await?;
         Ok(items)
-    }
-
-    pub async fn search_pull_requests(
-        &self,
-        query: &SearchArgs,
-    ) -> GhResult<Vec<PullRequestSearchItem>> {
-        if let Some(cached) = self.cached_search_pull_requests(query).await? {
-            return Ok(cached.value);
-        }
-        self.refresh_search_pull_requests(query).await
     }
 
     pub async fn cached_pull_request_conversation(
@@ -382,7 +371,8 @@ impl GhClient {
     ) -> GhResult<Option<CachedValue<PullRequestConversation>>> {
         let repo = validate_repo_identifier(repo)?;
         validate_pr_number(number)?;
-        self.cache_get(&format!("pr|conversation|{repo}|{number}")).await
+        self.cache_get(&format!("pr|conversation|{repo}|{number}"))
+            .await
     }
 
     pub async fn refresh_pull_request_conversation(
@@ -396,7 +386,9 @@ impl GhClient {
         let detail = self.fetch_pull_request_detail(&repo, number).await?;
         let issue_comments = self.fetch_issue_comments(&repo, number).await?;
         let reviews = self.fetch_pull_request_reviews(&repo, number).await?;
-        let review_comments = self.fetch_pull_request_review_comments(&repo, number).await?;
+        let review_comments = self
+            .fetch_pull_request_review_comments(&repo, number)
+            .await?;
 
         let conversation = PullRequestConversation {
             detail,
@@ -413,17 +405,6 @@ impl GhClient {
         .await?;
 
         Ok(conversation)
-    }
-
-    pub async fn pull_request_conversation(
-        &self,
-        repo: &str,
-        number: u64,
-    ) -> GhResult<PullRequestConversation> {
-        if let Some(cached) = self.cached_pull_request_conversation(repo, number).await? {
-            return Ok(cached.value);
-        }
-        self.refresh_pull_request_conversation(repo, number).await
     }
 
     pub async fn cached_pull_request_files(
@@ -456,23 +437,15 @@ impl GhClient {
             )
             .await?;
 
-        let files = parse_pull_request_files(&result.stdout).map_err(|details| {
-            GhError::ParseFailure {
+        let files =
+            parse_pull_request_files(&result.stdout).map_err(|details| GhError::ParseFailure {
                 class: CommandClass::PullRequestFiles,
                 details,
-            }
-        })?;
+            })?;
 
         self.cache_set(&format!("pr|files|{repo}|{number}"), CACHE_FILES, &files)
             .await?;
         Ok(files)
-    }
-
-    pub async fn pull_request_files(&self, repo: &str, number: u64) -> GhResult<Vec<PullRequestFile>> {
-        if let Some(cached) = self.cached_pull_request_files(repo, number).await? {
-            return Ok(cached.value);
-        }
-        self.refresh_pull_request_files(repo, number).await
     }
 
     async fn cache_get<T: DeserializeOwned>(&self, key: &str) -> GhResult<Option<CachedValue<T>>> {
@@ -500,7 +473,12 @@ impl GhClient {
         }))
     }
 
-    async fn cache_set<T: Serialize>(&self, key: &str, policy: CachePolicy, value: &T) -> GhResult<()> {
+    async fn cache_set<T: Serialize>(
+        &self,
+        key: &str,
+        policy: CachePolicy,
+        value: &T,
+    ) -> GhResult<()> {
         let payload = serde_json::to_vec(value).map_err(|err| {
             GhError::Internal(format!("failed serializing cache payload for {key}: {err}"))
         })?;
@@ -735,8 +713,14 @@ mod tests {
     #[test]
     fn review_event_parser_accepts_known_values() {
         let _guard = test_lock().lock().expect("test lock");
-        assert_eq!(ReviewEvent::parse("approve").expect("approve"), ReviewEvent::Approve);
-        assert_eq!(ReviewEvent::parse("comment").expect("comment"), ReviewEvent::Comment);
+        assert_eq!(
+            ReviewEvent::parse("approve").expect("approve"),
+            ReviewEvent::Approve
+        );
+        assert_eq!(
+            ReviewEvent::parse("comment").expect("comment"),
+            ReviewEvent::Comment
+        );
         assert_eq!(
             ReviewEvent::parse("request_changes").expect("request changes"),
             ReviewEvent::RequestChanges
@@ -749,7 +733,10 @@ mod tests {
         let _guard = test_lock().lock().expect("test lock");
         smol::block_on(async {
             let runner = Arc::new(MockRunner::with_responses(vec![ok("[]")]));
-            let client = GhClient::with_runner(Arc::clone(&runner) as Arc<dyn CommandRunner>, Duration::from_secs(5));
+            let client = GhClient::with_runner(
+                Arc::clone(&runner) as Arc<dyn CommandRunner>,
+                Duration::from_secs(5),
+            );
 
             let query = SearchArgs::default();
             let first = client.search_pull_requests(&query).await.expect("first");
@@ -766,14 +753,21 @@ mod tests {
         let _guard = test_lock().lock().expect("test lock");
         smol::block_on(async {
             let runner = Arc::new(MockRunner::with_responses(vec![ok("[]")]));
-            let client = GhClient::with_runner(Arc::clone(&runner) as Arc<dyn CommandRunner>, Duration::from_secs(5));
+            let client = GhClient::with_runner(
+                Arc::clone(&runner) as Arc<dyn CommandRunner>,
+                Duration::from_secs(5),
+            );
             let query = SearchArgs {
                 status: PullRequestStatus::Merged,
                 ..SearchArgs::default()
             };
 
             let _ = client.search_pull_requests(&query).await;
-            let command = runner.seen_commands().into_iter().next().expect("one command");
+            let command = runner
+                .seen_commands()
+                .into_iter()
+                .next()
+                .expect("one command");
             assert!(command.args.contains(&"--merged".to_string()));
             assert!(command.args.contains(&"closed".to_string()));
         });
@@ -784,7 +778,10 @@ mod tests {
         let _guard = test_lock().lock().expect("test lock");
         smol::block_on(async {
             let runner = Arc::new(MockRunner::with_responses(vec![ok("[]"), ok(""), ok("[]")]));
-            let client = GhClient::with_runner(Arc::clone(&runner) as Arc<dyn CommandRunner>, Duration::from_secs(5));
+            let client = GhClient::with_runner(
+                Arc::clone(&runner) as Arc<dyn CommandRunner>,
+                Duration::from_secs(5),
+            );
 
             let query = SearchArgs {
                 org: Some("westbrookdaniel".to_string()),
@@ -799,17 +796,26 @@ mod tests {
                 view: None,
             };
 
-            let _ = client.search_pull_requests(&query).await.expect("initial search");
+            let _ = client
+                .search_pull_requests(&query)
+                .await
+                .expect("initial search");
             client
                 .submit_comment("acme/widgets", 44, "hello from ui")
                 .await
                 .expect("comment should succeed");
-            let _ = client.search_pull_requests(&query).await.expect("search after write");
+            let _ = client
+                .search_pull_requests(&query)
+                .await
+                .expect("search after write");
 
             let commands = runner.seen_commands();
             assert_eq!(commands.len(), 3);
             assert_eq!(commands[1].class, CommandClass::SubmitComment);
-            assert_eq!(commands[1].stdin.as_deref(), Some("hello from ui".as_bytes()));
+            assert_eq!(
+                commands[1].stdin.as_deref(),
+                Some("hello from ui".as_bytes())
+            );
             assert_eq!(commands[2].class, CommandClass::PullRequestSearch);
         });
     }

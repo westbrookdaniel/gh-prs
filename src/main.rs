@@ -15,6 +15,7 @@ use std::io;
 
 fn main() -> io::Result<()> {
     init_runtime_storage()?;
+
     let config = parse_startup_config()?;
 
     smol::block_on(async move {

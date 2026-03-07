@@ -89,6 +89,7 @@ impl PullRequestStateTransition {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct CommandResult {
     pub stdout: String,

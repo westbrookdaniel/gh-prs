@@ -175,10 +175,6 @@ pub fn default_cache_db_path() -> io::Result<PathBuf> {
     Ok(default_app_home()?.join("cache.db"))
 }
 
-pub fn cache_db_path_for_home(home: &Path) -> PathBuf {
-    home.join("cache.db")
-}
-
 fn ensure_parent_dir(db_path: &Path) -> io::Result<()> {
     let parent = db_path.parent().ok_or_else(|| {
         io::Error::new(
