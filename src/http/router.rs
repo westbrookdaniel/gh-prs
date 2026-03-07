@@ -75,18 +75,17 @@ impl Router {
         let normalized_path = normalize_path(path);
         let parts = split_path(&normalized_path);
 
-        if let Some(tree) = self.methods.get(&method) {
-            if let Some(found) = tree.resolve(parts.as_slice()) {
-                return found;
-            }
+        if let Some(tree) = self.methods.get(&method)
+            && let Some(found) = tree.resolve(parts.as_slice())
+        {
+            return found;
         }
 
-        if method != "ANY" {
-            if let Some(tree) = self.methods.get("ANY") {
-                if let Some(found) = tree.resolve(parts.as_slice()) {
-                    return found;
-                }
-            }
+        if method != "ANY"
+            && let Some(tree) = self.methods.get("ANY")
+            && let Some(found) = tree.resolve(parts.as_slice())
+        {
+            return found;
         }
 
         let mut allow = self.allowed_methods_for_parts(parts.as_slice());
@@ -225,10 +224,10 @@ fn resolve_node(
 
     let segment = parts[index];
 
-    if let Some(child) = node.static_children.get(segment) {
-        if let Some(found) = resolve_node(child, parts, index + 1, params) {
-            return Some(found);
-        }
+    if let Some(child) = node.static_children.get(segment)
+        && let Some(found) = resolve_node(child, parts, index + 1, params)
+    {
+        return Some(found);
     }
 
     if let Some(param) = &node.param_child {
@@ -256,16 +255,16 @@ fn matches_node(node: &Node, parts: &[&str], index: usize) -> bool {
     }
 
     let segment = parts[index];
-    if let Some(child) = node.static_children.get(segment) {
-        if matches_node(child, parts, index + 1) {
-            return true;
-        }
+    if let Some(child) = node.static_children.get(segment)
+        && matches_node(child, parts, index + 1)
+    {
+        return true;
     }
 
-    if let Some(param) = &node.param_child {
-        if matches_node(param.node.as_ref(), parts, index + 1) {
-            return true;
-        }
+    if let Some(param) = &node.param_child
+        && matches_node(param.node.as_ref(), parts, index + 1)
+    {
+        return true;
     }
 
     node.catch_all_child.is_some()

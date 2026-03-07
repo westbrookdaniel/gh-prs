@@ -58,8 +58,16 @@ impl Response {
         let name = name.into();
         let value = value.into();
 
+        self.insert_header(name, value);
+        self
+    }
+
+    pub fn insert_header(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        let name = name.into();
+        let value = value.into();
+
         if !is_valid_header_name(&name) || !is_valid_header_value(&value) {
-            return self;
+            return;
         }
 
         if let Some(existing) = self
@@ -71,7 +79,6 @@ impl Response {
         } else {
             self.headers.push((name, value));
         }
-        self
     }
 
     pub fn header_if_missing(self, name: impl Into<String>, value: impl Into<String>) -> Self {

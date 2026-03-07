@@ -311,10 +311,8 @@ impl GhClient {
         ];
 
         let mut repos = query.repos.clone();
-        if repos.is_empty() {
-            if let Some(repo) = &query.repo {
-                repos.push(repo.clone());
-            }
+        if repos.is_empty() && let Some(repo) = &query.repo {
+            repos.push(repo.clone());
         }
         if repos.is_empty() {
             args.push("--owner".to_string());
@@ -362,6 +360,18 @@ impl GhClient {
         self.cache_set(&search_cache_key(query), CACHE_SEARCH, &items)
             .await?;
         Ok(items)
+    }
+
+    #[cfg(test)]
+    pub async fn search_pull_requests(
+        &self,
+        query: &SearchArgs,
+    ) -> GhResult<Vec<PullRequestSearchItem>> {
+        if let Some(cached) = self.cached_search_pull_requests(query).await? {
+            return Ok(cached.value);
+        }
+
+        self.refresh_search_pull_requests(query).await
     }
 
     pub async fn cached_pull_request_conversation(
@@ -523,7 +533,7 @@ impl Default for GhClient {
         match Self::new() {
             Ok(client) => client,
             Err(error) => {
-                eprintln!("[cache] failed opening default sqlite cache: {error}");
+                tracing::warn!(error = %error, "failed opening default sqlite cache; using fallback");
                 let fallback = std::env::temp_dir().join("gh-prs").join("cache.db");
                 let cache = SqliteCacheStore::open(fallback)
                     .expect("failed to create fallback sqlite cache store");

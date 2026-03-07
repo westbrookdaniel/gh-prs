@@ -18,16 +18,28 @@ use crate::views::types::{
     RepoOptionView, ReviewCommentView,
 };
 
-pub fn list_page_model(
-    _repo: Option<&RepoContext>,
-    _diagnostics: Option<&crate::gh::models::PreflightDiagnostics>,
-    query: &SearchArgs,
-    available_repos: Vec<String>,
-    items: Vec<PullRequestSearchItem>,
-    is_loading: bool,
-    flash: Option<crate::views::types::FlashMessageView>,
-    _request: &crate::http::Request,
-) -> PrListPageModel {
+pub struct ListPageModelInput<'a> {
+    pub repo: Option<&'a RepoContext>,
+    pub diagnostics: Option<&'a crate::gh::models::PreflightDiagnostics>,
+    pub query: &'a SearchArgs,
+    pub available_repos: Vec<String>,
+    pub items: Vec<PullRequestSearchItem>,
+    pub is_loading: bool,
+    pub flash: Option<crate::views::types::FlashMessageView>,
+    pub request: &'a crate::http::Request,
+}
+
+pub fn list_page_model(input: ListPageModelInput<'_>) -> PrListPageModel {
+    let ListPageModelInput {
+        repo: _repo,
+        diagnostics: _diagnostics,
+        query,
+        available_repos,
+        items,
+        is_loading,
+        flash,
+        request: _request,
+    } = input;
     let original_query = query.to_query_string();
     let rows: Vec<PrListRowView> = items
         .into_iter()

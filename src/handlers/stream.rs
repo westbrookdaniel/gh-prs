@@ -4,8 +4,8 @@ use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::search::SearchArgs;
 use crate::views::{
-    PrChangesContentTemplate, PrDetailContentTemplate, PrListResultsTemplate, changes_page_model,
-    detail_page_model, list_page_model,
+    ListPageModelInput, PrChangesContentTemplate, PrDetailContentTemplate,
+    PrListResultsTemplate, changes_page_model, detail_page_model, list_page_model,
 };
 use askama::Template;
 use datastar::consts::ElementPatchMode;
@@ -29,7 +29,7 @@ pub async fn stream_pr_list(request: Request) -> Response {
     };
 
     let has_cached = maybe_cached.is_some();
-    let should_refresh = maybe_cached.as_ref().map_or(true, |cached| cached.is_stale);
+    let should_refresh = maybe_cached.as_ref().is_none_or(|cached| cached.is_stale);
     if !should_refresh {
         return sse_noop();
     }
@@ -48,16 +48,16 @@ pub async fn stream_pr_list(request: Request) -> Response {
         }
     };
 
-    let model = list_page_model(
-        state.startup_repo.as_ref(),
-        state.diagnostics.as_ref(),
-        &query,
-        Vec::new(),
+    let model = list_page_model(ListPageModelInput {
+        repo: state.startup_repo.as_ref(),
+        diagnostics: state.diagnostics.as_ref(),
+        query: &query,
+        available_repos: Vec::new(),
         items,
-        false,
-        None,
-        &request,
-    );
+        is_loading: false,
+        flash: None,
+        request: &request,
+    });
 
     let html = match (PrListResultsTemplate {
         model: model.clone(),
@@ -96,7 +96,7 @@ pub async fn stream_pr_detail(request: Request) -> Response {
     };
 
     let has_cached = maybe_cached.is_some();
-    let should_refresh = maybe_cached.as_ref().map_or(true, |cached| cached.is_stale);
+    let should_refresh = maybe_cached.as_ref().is_none_or(|cached| cached.is_stale);
     if !should_refresh {
         return sse_noop();
     }

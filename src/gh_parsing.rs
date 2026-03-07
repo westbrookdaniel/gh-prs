@@ -314,11 +314,11 @@ fn extract_requested_reviewers(value: Option<Value>) -> Vec<String> {
     };
 
     for item in collect_nodes(&value) {
-        if let Some(requested_reviewer) = item.get("requestedReviewer") {
-            if let Some(name) = reviewer_name(requested_reviewer) {
-                reviewers.push(name);
-                continue;
-            }
+        if let Some(requested_reviewer) = item.get("requestedReviewer")
+            && let Some(name) = reviewer_name(requested_reviewer)
+        {
+            reviewers.push(name);
+            continue;
         }
 
         if let Some(name) = reviewer_name(item) {

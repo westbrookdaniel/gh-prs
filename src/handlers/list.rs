@@ -2,7 +2,7 @@ use crate::handlers::flash::flash_from_query;
 use crate::handlers::format::{render_gh_error, render_template};
 use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
-use crate::views::{PrListTemplate, SearchArgs, list_page_model};
+use crate::views::{ListPageModelInput, PrListTemplate, SearchArgs, list_page_model};
 use smol::spawn;
 
 pub async fn list_pull_requests(request: Request) -> Response {
@@ -38,16 +38,16 @@ pub async fn list_pull_requests(request: Request) -> Response {
         None => (Vec::new(), true),
     };
 
-    let model = list_page_model(
-        state.startup_repo.as_ref(),
-        state.diagnostics.as_ref(),
-        &query,
+    let model = list_page_model(ListPageModelInput {
+        repo: state.startup_repo.as_ref(),
+        diagnostics: state.diagnostics.as_ref(),
+        query: &query,
         available_repos,
         items,
         is_loading,
         flash,
-        &request,
-    );
+        request: &request,
+    });
     let template = PrListTemplate { model };
     render_template(200, "OK", &template)
 }

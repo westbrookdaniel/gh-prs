@@ -91,10 +91,10 @@ pub fn static_dir(
                     }
                 };
 
-            if request.path.ends_with('/') || relative_path.as_os_str().is_empty() {
-                if let Some(index_file) = &options.index_file {
-                    relative_path.push(index_file);
-                }
+            if (request.path.ends_with('/') || relative_path.as_os_str().is_empty())
+                && let Some(index_file) = &options.index_file
+            {
+                relative_path.push(index_file);
             }
 
             if relative_path.as_os_str().is_empty() {
@@ -151,10 +151,8 @@ pub fn static_dir(
                     }
                 };
 
-                if options.memory_cache {
-                    if let Ok(mut state) = cache.lock() {
-                        state.insert(cache_key.clone(), loaded.clone());
-                    }
+                if options.memory_cache && let Ok(mut state) = cache.lock() {
+                    state.insert(cache_key.clone(), loaded.clone());
                 }
 
                 entry = Some(loaded);
@@ -162,20 +160,19 @@ pub fn static_dir(
 
             let entry = entry.expect("static file entry should exist after load");
 
-            if options.etag {
-                if let Some(if_none_match) = request.header("if-none-match") {
-                    if request_matches_etag(if_none_match, &entry.etag) {
-                        let mut response =
-                            Response::new(304, "Not Modified").header("ETag", entry.etag.clone());
-                        if let Some(cache_control) = &options.cache_control {
-                            response = response.header("Cache-Control", cache_control);
-                        }
-                        if request.method == "HEAD" {
-                            response = response.into_head_response();
-                        }
-                        return response;
-                    }
+            if options.etag
+                && let Some(if_none_match) = request.header("if-none-match")
+                && request_matches_etag(if_none_match, &entry.etag)
+            {
+                let mut response =
+                    Response::new(304, "Not Modified").header("ETag", entry.etag.clone());
+                if let Some(cache_control) = &options.cache_control {
+                    response = response.header("Cache-Control", cache_control);
                 }
+                if request.method == "HEAD" {
+                    response = response.into_head_response();
+                }
+                return response;
             }
 
             let mut response = Response::ok()
@@ -213,9 +210,13 @@ pub fn logger() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 's
             let response = next.run(request).await;
             let elapsed_ms = started.elapsed().as_millis();
 
-            println!(
-                "[request] id={request_id} {method} {path} -> {} ({elapsed_ms}ms)",
-                response.status_code()
+            tracing::info!(
+                http.request.method = %method,
+                url.path = %path,
+                http.response.status_code = response.status_code() as u64,
+                http.request_id = %request_id,
+                http.server_duration_ms = elapsed_ms as u64,
+                "request completed"
             );
 
             response
@@ -386,9 +387,7 @@ impl StaticFileCache {
     }
 
     fn get_fresh(&mut self, key: &str, ttl: Duration) -> Option<StaticFileEntry> {
-        let Some(entry) = self.entries.get(key).cloned() else {
-            return None;
-        };
+        let entry = self.entries.get(key).cloned()?;
 
         if entry.inserted_at.elapsed() > ttl {
             self.remove(key);

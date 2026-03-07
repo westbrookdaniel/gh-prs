@@ -5,15 +5,18 @@ mod handlers;
 mod http;
 mod search;
 mod startup;
+mod telemetry;
 mod views;
 
 use crate::handlers::state::set_app_state;
 use crate::handlers::{AppState, register};
-use crate::http::{App, StaticDirOptions, logger, request_id, security_headers, static_dir};
+use crate::http::{App, StaticDirOptions, request_id, security_headers, static_dir};
 use crate::startup::{init_runtime_storage, parse_startup_config, run_startup_checks};
+use crate::telemetry::{init_tracing, request_tracing};
 use std::io;
 
 fn main() -> io::Result<()> {
+    let _telemetry = init_tracing()?;
     init_runtime_storage()?;
 
     let config = parse_startup_config()?;
@@ -39,8 +42,8 @@ fn main() -> io::Result<()> {
 
         let app = App::new()
             .middleware(request_id())
+            .middleware(request_tracing())
             .middleware(security_headers())
-            .middleware(logger())
             .middleware(static_dir(static_assets));
 
         register(app).serve(&config.bind_addr).await

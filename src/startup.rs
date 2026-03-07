@@ -53,8 +53,8 @@ pub fn init_runtime_storage() -> io::Result<()> {
     let store = SqliteCacheStore::open_default()?;
     let _ = smol::block_on(store.prune_expired());
     let app_home = cache_store::default_app_home()?;
-    println!("[startup] cache home: {}", app_home.display());
-    println!("[startup] cache db: {}", store.db_path().display());
+    tracing::info!(path = %app_home.display(), "cache home ready");
+    tracing::info!(path = %store.db_path().display(), "cache database ready");
     Ok(())
 }
 

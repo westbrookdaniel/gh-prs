@@ -45,15 +45,15 @@ impl CommandRunner for SystemCommandRunner {
             .spawn()
             .map_err(|err| map_spawn_error(err, command.class))?;
 
-        if let Some(input) = command.stdin {
-            if let Some(mut stdin) = child.stdin.take() {
+        if let Some(input) = command.stdin
+            && let Some(mut stdin) = child.stdin.take()
+        {
                 stdin.write_all(&input).map_err(|err| {
                     GhError::Internal(format!(
                         "failed writing stdin for {}: {err}",
                         command.class.as_str()
                     ))
                 })?;
-            }
         }
 
         let stdout_handle = spawn_pipe_reader(child.stdout.take());
@@ -157,11 +157,11 @@ fn map_nonzero_exit(
 }
 
 fn log_command_completion(class: CommandClass, duration: Duration, code: Option<i32>) {
-    println!(
-        "[gh] class={} duration_ms={} exit_code={}",
-        class.as_str(),
-        duration.as_millis(),
-        code.map_or_else(|| "unknown".to_string(), |value| value.to_string())
+    tracing::info!(
+        command.class = class.as_str(),
+        command.duration_ms = duration.as_millis() as u64,
+        command.exit_code = code,
+        "gh command finished"
     );
 }
 

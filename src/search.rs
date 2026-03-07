@@ -1,5 +1,5 @@
 use crate::gh::models::{
-    DEFAULT_SEARCH_LIMIT, PullRequestOrder, PullRequestSort, PullRequestStatus,
+    PullRequestOrder, PullRequestSort, PullRequestStatus, DEFAULT_SEARCH_LIMIT,
 };
 use crate::http::Request;
 
@@ -36,14 +36,17 @@ impl Default for SearchArgs {
 
 impl SearchArgs {
     pub fn from_request(request: &Request) -> Self {
-        let mut args = Self::default();
+        let org = request.query_param("org").and_then(normalize_simple);
+        let mut args = Self {
+            org: org.clone(),
+            ..Self::default()
+        };
 
-        args.org = request.query_param("org").and_then(normalize_simple);
         let mut repos = Vec::new();
         if let Some(values) = request.query_values("repo") {
             for value in values {
                 for candidate in value.split(',') {
-                    if let Some(repo) = normalize_repo(candidate, args.org.as_deref()) {
+                    if let Some(repo) = normalize_repo(candidate, org.as_deref()) {
                         repos.push(repo);
                     }
                 }
@@ -213,7 +216,7 @@ fn normalize_repo_parts(owner: &str, name: &str) -> Option<String> {
 mod tests {
     use super::SearchArgs;
     use crate::gh::models::{
-        DEFAULT_SEARCH_LIMIT, PullRequestOrder, PullRequestSort, PullRequestStatus,
+        PullRequestOrder, PullRequestSort, PullRequestStatus, DEFAULT_SEARCH_LIMIT,
     };
     use crate::http::Request;
 

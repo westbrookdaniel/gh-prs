@@ -253,7 +253,7 @@ impl App {
         })
         .detach();
 
-        println!("[startup] listening on http://{address}");
+        tracing::info!(server.address = %address, "listening for http requests");
 
         loop {
             let event = future::or(
@@ -296,7 +296,7 @@ impl App {
                     handle_connection(stream, router, middlewares, read_timeout, max_request_size)
                         .await
                 {
-                    eprintln!("connection error: {err}");
+                    tracing::warn!(error = %err, "connection error");
                 }
             })
             .detach();
@@ -452,13 +452,13 @@ async fn read_request_bytes(
     let mut expected_len = expected_request_len(buffered, max_request_size)?;
 
     loop {
-        if let Some(total_expected) = expected_len {
-            if buffered.len() >= total_expected {
+        if let Some(total_expected) = expected_len
+            && buffered.len() >= total_expected
+        {
                 let mut tail = buffered.split_off(total_expected);
                 let request = std::mem::take(buffered);
                 std::mem::swap(buffered, &mut tail);
                 return Ok(request);
-            }
         }
 
         let read = future::or(
@@ -637,10 +637,8 @@ mod tests {
         let mut expected_len: Option<usize> = None;
 
         loop {
-            if let Some(expected_len) = expected_len {
-                if response.len() >= expected_len {
-                    break;
-                }
+            if let Some(expected_len) = expected_len && response.len() >= expected_len {
+                break;
             }
 
             let read = stream.read(&mut buffer).await?;
@@ -655,11 +653,11 @@ mod tests {
             }
 
             response.extend_from_slice(&buffer[..read]);
-            if expected_len.is_none() {
-                if let Some(header_end) = super::find_bytes(&response, b"\r\n\r\n") {
-                    let content_length = parse_content_length(&response[..header_end]).unwrap_or(0);
-                    expected_len = Some(header_end + 4 + content_length);
-                }
+            if expected_len.is_none()
+                && let Some(header_end) = super::find_bytes(&response, b"\r\n\r\n")
+            {
+                let content_length = parse_content_length(&response[..header_end]).unwrap_or(0);
+                expected_len = Some(header_end + 4 + content_length);
             }
         }
 
@@ -681,10 +679,10 @@ mod tests {
             if line.is_empty() {
                 break;
             }
-            if let Some((header_name, header_value)) = line.split_once(':') {
-                if header_name.trim().eq_ignore_ascii_case(name) {
-                    return Some(header_value.trim().to_string());
-                }
+            if let Some((header_name, header_value)) = line.split_once(':')
+                && header_name.trim().eq_ignore_ascii_case(name)
+            {
+                return Some(header_value.trim().to_string());
             }
         }
 

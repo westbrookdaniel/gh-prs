@@ -434,11 +434,9 @@ pub fn repo_action_path(repo: &str, number: u64, action: &str, query: Option<&st
 }
 
 pub fn with_query(mut path: String, query: Option<&str>) -> String {
-    if let Some(query) = query {
-        if !query.is_empty() {
-            path.push('?');
-            path.push_str(query);
-        }
+    if let Some(query) = query && !query.is_empty() {
+        path.push('?');
+        path.push_str(query);
     }
     path
 }

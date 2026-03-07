@@ -106,10 +106,10 @@ mod tests {
             if line.trim().is_empty() {
                 break;
             }
-            if let Some((header_name, value)) = line.split_once(':') {
-                if header_name.trim().eq_ignore_ascii_case(name) {
-                    return Some(value.trim().to_string());
-                }
+            if let Some((header_name, value)) = line.split_once(':')
+                && header_name.trim().eq_ignore_ascii_case(name)
+            {
+                return Some(value.trim().to_string());
             }
         }
         None
@@ -133,8 +133,8 @@ mod tests {
 
     #[test]
     fn root_redirects_to_pr_list() {
+        let _guard = acquire_test_lock();
         smol::block_on(async {
-            let _guard = acquire_test_lock();
             let response =
                 root_redirect(request("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")).await;
             assert_eq!(response.status_code(), 303);
@@ -144,8 +144,8 @@ mod tests {
 
     #[test]
     fn list_handler_renders_rows() {
+        let _guard = acquire_test_lock();
         smol::block_on(async {
-            let _guard = acquire_test_lock();
             let state = state_with_responses(vec![
                 ok(r#"[
                 {
@@ -182,8 +182,8 @@ mod tests {
 
     #[test]
     fn detail_handler_renders_sections() {
+        let _guard = acquire_test_lock();
         smol::block_on(async {
-            let _guard = acquire_test_lock();
             let state = state_with_responses(vec![
                 ok(r#"{
                     "number":7,
@@ -244,8 +244,8 @@ mod tests {
 
     #[test]
     fn changes_handler_renders_diff_tab() {
+        let _guard = acquire_test_lock();
         smol::block_on(async {
-            let _guard = acquire_test_lock();
             let state = state_with_responses(vec![
                 ok(r#"{
                     "number":7,
@@ -321,8 +321,8 @@ mod tests {
 
     #[test]
     fn comment_post_redirects_with_success_flash() {
+        let _guard = acquire_test_lock();
         smol::block_on(async {
-            let _guard = acquire_test_lock();
             set_app_state(state_with_responses(vec![ok("")]));
             let raw = "POST /repos/acme/widgets/prs/7/comment?org=acme HTTP/1.1\r\nHost: localhost\r\nContent-Length: 15\r\n\r\nbody=hello+team";
             let response = submit_comment(
@@ -347,8 +347,8 @@ mod tests {
 
     #[test]
     fn merge_post_redirects_with_success_flash() {
+        let _guard = acquire_test_lock();
         smol::block_on(async {
-            let _guard = acquire_test_lock();
             set_app_state(state_with_responses(vec![ok("")]));
 
             let response = merge_pull_request(
@@ -376,8 +376,8 @@ mod tests {
 
     #[test]
     fn state_post_redirects_with_success_flash() {
+        let _guard = acquire_test_lock();
         smol::block_on(async {
-            let _guard = acquire_test_lock();
             set_app_state(state_with_responses(vec![ok("")]));
 
             let response = update_pull_request_state(
@@ -405,8 +405,8 @@ mod tests {
 
     #[test]
     fn health_reports_degraded_when_startup_failed() {
+        let _guard = acquire_test_lock();
         smol::block_on(async {
-            let _guard = acquire_test_lock();
             set_app_state(AppState {
                 gh: GhClient::with_runner(Arc::new(MockRunner::default()), Duration::from_secs(3)),
                 startup_repo: None,
@@ -425,8 +425,8 @@ mod tests {
 
     #[test]
     fn list_links_preserve_query_context() {
+        let _guard = acquire_test_lock();
         smol::block_on(async {
-            let _guard = acquire_test_lock();
             let state = state_with_responses(vec![
                 ok(r#"[
                 {

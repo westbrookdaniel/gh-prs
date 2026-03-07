@@ -80,16 +80,14 @@ impl Request {
                 .trim()
                 .to_string();
 
-            if name == "content-length" {
-                if let Some(existing) = headers.get(&name) {
-                    if existing != &value {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "conflicting content-length headers",
-                        ));
-                    }
-                    continue;
+            if name == "content-length" && let Some(existing) = headers.get(&name) {
+                if existing != &value {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "conflicting content-length headers",
+                    ));
                 }
+                continue;
             }
 
             if let Some(existing) = headers.get_mut(&name) {
@@ -113,13 +111,12 @@ impl Request {
             .map(String::as_str)
             .map(parse_content_length)
             .transpose()?
+            && body.len() != content_length
         {
-            if body.len() != content_length {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "request body length does not match content-length",
-                ));
-            }
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "request body length does not match content-length",
+            ));
         }
 
         let (path, query) = if let Some((path, query)) = target.split_once('?') {
