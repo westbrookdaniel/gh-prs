@@ -9,32 +9,14 @@ pub struct PrListTemplate {
 }
 
 #[derive(Template)]
-#[template(path = "pages/fragments/pr_list_results.html")]
-pub struct PrListResultsTemplate {
-    pub model: PrListPageModel,
-}
-
-#[derive(Template)]
 #[template(path = "pages/pr_detail.html")]
 pub struct PrDetailTemplate {
     pub model: PrDetailPageModel,
 }
 
 #[derive(Template)]
-#[template(path = "pages/fragments/pr_detail_content.html")]
-pub struct PrDetailContentTemplate {
-    pub model: PrDetailPageModel,
-}
-
-#[derive(Template)]
 #[template(path = "pages/pr_changes.html")]
 pub struct PrChangesTemplate {
-    pub model: PrChangesPageModel,
-}
-
-#[derive(Template)]
-#[template(path = "pages/fragments/pr_changes_content.html")]
-pub struct PrChangesContentTemplate {
     pub model: PrChangesPageModel,
 }
 

@@ -1,5 +1,5 @@
 use crate::gh::client::GhClient;
-use crate::gh::models::{PreflightDiagnostics, RepoContext};
+use crate::gh::models::RepoContext;
 use crate::gh::{GhError, GhResult};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -8,7 +8,6 @@ use std::time::Duration;
 pub struct AppState {
     pub gh: GhClient,
     pub startup_repo: Option<RepoContext>,
-    pub diagnostics: Option<PreflightDiagnostics>,
     pub startup_error: Option<GhError>,
     pub startup_elapsed: Duration,
 }

@@ -1,24 +1,26 @@
+{% if let Some(detail) = model.detail.value %}
 <cp-card class="page-header detail-hero">
-  {% if model.is_loading %}
+  <div class="detail-hero-top">
+    <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
+    <div class="hero-badges">
+      <cp-badge tone="{{ model.state_tone(detail) }}" title="{{ model.state_tooltip(detail) }}">{{ model.state_label(detail) }}</cp-badge>
+      {% if detail.is_draft %}<cp-badge tone="state-draft" title="{{ model.draft_tooltip() }}">DRAFT</cp-badge>{% endif %}
+      <cp-badge tone="{{ model.merge_state_tone(detail) }}" title="{{ model.merge_state_tooltip(detail) }}">{{ detail.merge_state_status }}</cp-badge>
+    </div>
+  </div>
+  <h1 class="page-title">PR #{{ detail.number }} · {{ detail.title }}</h1>
+  <p class="meta">repository: <a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a> · files: <strong>{{ detail.file_count }}</strong></p>
+</cp-card>
+{% else %}
+<cp-card class="page-header detail-hero">
   <div class="detail-hero-top" aria-hidden="true">
     <p class="skeleton skeleton-line skeleton-line-short"></p>
     <p class="skeleton skeleton-pill"></p>
   </div>
   <p class="skeleton skeleton-line skeleton-line-lg" aria-hidden="true"></p>
   <p class="skeleton skeleton-line" aria-hidden="true"></p>
-  {% else %}
-  <div class="detail-hero-top">
-    <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
-    <div class="hero-badges">
-      <cp-badge tone="{{ model.header.state_tone }}" title="{{ model.header.state_tooltip }}">{{ model.header.state_label }}</cp-badge>
-      {% if model.header.is_draft %}<cp-badge tone="state-draft" title="{{ model.header.draft_tooltip }}">DRAFT</cp-badge>{% endif %}
-      <cp-badge tone="{{ model.header.merge_state_tone }}" title="{{ model.header.merge_state_tooltip }}">{{ model.header.merge_state_status }}</cp-badge>
-    </div>
-  </div>
-  <h1 class="page-title">PR #{{ model.header.number }} · {{ model.header.title }}</h1>
-  <p class="meta">repository: <a href="{{ model.repo_url }}">{{ model.repo_name }}</a> · files: <strong>{{ model.header.file_count }}</strong></p>
-  {% endif %}
 </cp-card>
+{% endif %}
 
 {% if let Some(flash) = model.flash %}
 <cp-alert tone="{{ flash.kind }}">{{ flash.message }}</cp-alert>
@@ -36,7 +38,7 @@
   <aside class="diff-tree" id="diff-file-tree">
     <h2 class="tree-title">Files</h2>
     <ul class="file-tree-root">
-      {% if model.is_loading %}
+      {% if model.files.value.is_none() %}
       <li class="file-node-leaf" aria-hidden="true">
         <span class="skeleton skeleton-line"></span>
       </li>
@@ -59,7 +61,7 @@
   </aside>
 
   <div class="diff-content">
-    {% if model.is_loading %}
+    {% if model.files.value.is_none() %}
     <section class="skeleton-stack" aria-hidden="true">
       <article class="diff-file-section skeleton-card-block">
         <p class="skeleton skeleton-line skeleton-line-lg"></p>
@@ -73,11 +75,11 @@
         <p class="skeleton skeleton-line skeleton-line-short"></p>
       </article>
     </section>
-    {% else if model.files.is_empty() %}
+    {% else if model.rendered_files.is_empty() %}
     <section><p class="empty">No changed files were returned.</p></section>
     {% endif %}
 
-    {% for file in model.files %}
+    {% for file in model.rendered_files %}
     <section id="{{ file.id }}" class="diff-file-section">
       <details class="diff-file-accordion" {% if !file.is_collapsed %}open{% endif %}>
         <summary class="diff-file-summary">

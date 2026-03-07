@@ -9,7 +9,6 @@ askama = "0.12"
 async-channel = "2"
 async-net = "2"
 chrono = { version = "0.4", features = ["clock"] }
-datastar = "0.3"
 futures-lite = "2"
 httparse = "1"
 pulldown-cmark = "0.11"

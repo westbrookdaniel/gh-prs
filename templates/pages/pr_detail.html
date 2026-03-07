@@ -3,8 +3,8 @@
 {% block title %}{{ model.page_title }}{% endblock %}
 
 {% block content %}
-<main class="page page-detail page-consistent" data-init="@get('{{ model.refresh_sse_path }}', {openWhenHidden: true, retry: 'never'})">
-  <section id="stream-status" class="stream-status" aria-live="polite"></section>
+<main class="page page-detail page-consistent" data-refresh-path="{{ model.refresh_path }}" data-needs-refresh="{{ model.needs_refresh }}">
+  <section class="page-refresh-status" data-page-refresh-status aria-live="polite"></section>
   <div id="pr-detail-content">
     {% include "pages/fragments/pr_detail_content.html" %}
   </div>

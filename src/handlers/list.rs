@@ -1,9 +1,9 @@
 use crate::handlers::flash::flash_from_query;
 use crate::handlers::format::{render_gh_error, render_template};
+use crate::handlers::load::{PageLoadMode, loadable_from_cached};
 use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::{ListPageModelInput, PrListTemplate, SearchArgs, list_page_model};
-use smol::spawn;
 
 pub async fn list_pull_requests(request: Request) -> Response {
     let flash = flash_from_query(&request);
@@ -14,37 +14,39 @@ pub async fn list_pull_requests(request: Request) -> Response {
     }
 
     let query = SearchArgs::from_request(&request);
+    let load_mode = PageLoadMode::from_request(&request);
 
-    let available_repos = match state.gh.cached_accessible_repositories().await {
-        Ok(Some(cached)) => cached.value,
-        Ok(None) => {
-            let gh = state.gh.clone();
-            spawn(async move {
-                let _ = gh.refresh_accessible_repositories().await;
-            })
-            .detach();
-            Vec::new()
+    let repo_options = if load_mode.bypass_cache() {
+        match state.gh.refresh_accessible_repositories().await {
+            Ok(value) => crate::views::types::Loadable::ready(value, false),
+            Err(err) => return render_gh_error(err),
         }
-        Err(err) => return render_gh_error(err),
+    } else {
+        match state.gh.cached_accessible_repositories().await {
+            Ok(value) => loadable_from_cached(value),
+            Err(err) => return render_gh_error(err),
+        }
     };
 
-    let cached_items = match state.gh.cached_search_pull_requests(&query).await {
-        Ok(value) => value,
-        Err(err) => return render_gh_error(err),
+    let results = if load_mode.bypass_cache() {
+        match state.gh.refresh_search_pull_requests(&query).await {
+            Ok(value) => crate::views::types::Loadable::ready(value, false),
+            Err(err) => return render_gh_error(err),
+        }
+    } else {
+        match state.gh.cached_search_pull_requests(&query).await {
+            Ok(value) => loadable_from_cached(value),
+            Err(err) => return render_gh_error(err),
+        }
     };
-
-    let (items, is_loading) = match cached_items {
-        Some(cached) => (cached.value, false),
-        None => (Vec::new(), true),
-    };
+    let needs_refresh = !load_mode.bypass_cache()
+        && (repo_options.needs_refresh() || results.needs_refresh());
 
     let model = list_page_model(ListPageModelInput {
-        repo: state.startup_repo.as_ref(),
-        diagnostics: state.diagnostics.as_ref(),
         query: &query,
-        available_repos,
-        items,
-        is_loading,
+        repo_options,
+        results,
+        needs_refresh,
         flash,
         request: &request,
     });

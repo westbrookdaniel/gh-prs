@@ -7,10 +7,7 @@ pub use crate::search::SearchArgs;
 pub use builders::{
     ListPageModelInput, changes_page_model, detail_page_model, error_page_model, list_page_model,
 };
-pub use templates::{
-    ErrorTemplate, NotFoundTemplate, PrChangesContentTemplate, PrChangesTemplate,
-    PrDetailContentTemplate, PrDetailTemplate, PrListResultsTemplate, PrListTemplate,
-};
+pub use templates::{ErrorTemplate, NotFoundTemplate, PrChangesTemplate, PrDetailTemplate, PrListTemplate};
 pub use types::FlashMessageView;
 
 pub fn not_found_page_model() -> crate::views::types::ErrorPageModel {

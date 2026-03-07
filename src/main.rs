@@ -27,7 +27,6 @@ fn main() -> io::Result<()> {
         set_app_state(AppState {
             gh: crate::gh::client::GhClient::default(),
             startup_repo: startup.repo,
-            diagnostics: startup.diagnostics,
             startup_error: startup.startup_error,
             startup_elapsed: startup.startup_elapsed,
         });

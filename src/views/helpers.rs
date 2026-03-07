@@ -519,31 +519,6 @@ pub fn default_list_back_href(query: Option<&str>) -> String {
     with_query("/prs".to_string(), query)
 }
 
-pub fn stream_list_path(query: &SearchArgs) -> String {
-    with_query(
-        "/streams/prs".to_string(),
-        query.to_query_string().as_deref(),
-    )
-}
-
-pub fn stream_detail_path_from_repo(repo: &str, number: u64, query: Option<&str>) -> String {
-    let base = if let Some((owner, name)) = repo.split_once('/') {
-        format!("/streams/repos/{owner}/{name}/prs/{number}")
-    } else {
-        format!("/streams/prs/{number}")
-    };
-    with_query(base, query)
-}
-
-pub fn stream_changes_path_from_repo(repo: &str, number: u64, query: Option<&str>) -> String {
-    let base = if let Some((owner, name)) = repo.split_once('/') {
-        format!("/streams/repos/{owner}/{name}/prs/{number}/changes")
-    } else {
-        format!("/streams/prs/{number}/changes")
-    };
-    with_query(base, query)
-}
-
 pub fn diff_files_view(files: Vec<PullRequestFile>) -> (Vec<DiffTreeItemView>, Vec<DiffFileView>) {
     let tree_items = files
         .iter()

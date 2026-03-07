@@ -5,11 +5,11 @@ pub mod flash;
 pub mod format;
 pub mod forms;
 pub mod health;
+pub mod load;
 pub mod list;
 pub mod not_found;
 pub mod routes;
 pub mod state;
-pub mod stream;
 pub mod write;
 
 pub use routes::register;
@@ -125,7 +125,6 @@ mod tests {
                 viewer_permission: "WRITE".to_string(),
                 default_branch: "main".to_string(),
             }),
-            diagnostics: None,
             startup_error: None,
             startup_elapsed: Duration::from_millis(7),
         }
@@ -177,6 +176,57 @@ mod tests {
             assert!(body.contains("Improve auth"));
             assert!(body.contains("/repos/acme/widgets/prs/7"));
             assert!(body.contains("acme/widgets"));
+        });
+    }
+
+    #[test]
+    fn list_handler_renders_skeleton_without_cache() {
+        let _guard = acquire_test_lock();
+        smol::block_on(async {
+            set_app_state(state_with_responses(vec![]));
+
+            let response =
+                list_pull_requests(request("GET /prs HTTP/1.1\r\nHost: localhost\r\n\r\n")).await;
+
+            assert_eq!(response.status_code(), 200);
+            let body = body_text(&response);
+            assert!(body.contains("Loading pull requests"));
+            assert!(body.contains("data-needs-refresh=\"true\""));
+        });
+    }
+
+    #[test]
+    fn list_handler_nocache_fetches_fresh_results() {
+        let _guard = acquire_test_lock();
+        smol::block_on(async {
+            set_app_state(state_with_responses(vec![
+                ok(""),
+                ok("[]"),
+                ok(r#"[
+                {
+                    "repository": {"nameWithOwner": "acme/widgets"},
+                    "number":7,
+                    "title":"Improve auth",
+                    "state":"open",
+                    "isDraft":false,
+                    "author":{"login":"alice"},
+                    "createdAt":"2026-01-01T00:00:00Z",
+                    "updatedAt":"2026-01-02T00:00:00Z",
+                    "url":"https://example/pr/7",
+                    "commentsCount":2
+                }
+            ]"#),
+            ]));
+
+            let response = list_pull_requests(request(
+                "GET /prs?nocache=1 HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            ))
+            .await;
+
+            assert_eq!(response.status_code(), 200);
+            let body = body_text(&response);
+            assert!(body.contains("Improve auth"));
+            assert!(body.contains("data-needs-refresh=\"false\""));
         });
     }
 
@@ -320,6 +370,68 @@ mod tests {
     }
 
     #[test]
+    fn changes_handler_renders_partial_cache_when_files_are_missing() {
+        let _guard = acquire_test_lock();
+        smol::block_on(async {
+            let state = state_with_responses(vec![
+                ok(r#"{
+                    "number":7,
+                    "title":"Improve auth",
+                    "body":"Body",
+                    "state":"OPEN",
+                    "isDraft":false,
+                    "author":{"login":"alice"},
+                    "createdAt":"2026-01-01T00:00:00Z",
+                    "updatedAt":"2026-01-02T00:00:00Z",
+                    "url":"https://example/pr/7",
+                    "baseRefName":"main",
+                    "headRefName":"feature",
+                    "mergeStateStatus":"CLEAN",
+                    "mergeable":"MERGEABLE",
+                    "reviewDecision":"REVIEW_REQUIRED",
+                    "reviewRequests":[],
+                    "latestReviews":[],
+                    "statusCheckRollup":null,
+                    "commits":{"totalCount":3},
+                    "files":{"totalCount":5}
+                }"#),
+                ok("[]"),
+                ok("[]"),
+                ok("[]"),
+            ]);
+            state
+                .gh
+                .refresh_pull_request_conversation("acme/widgets", 7)
+                .await
+                .expect("prime conversation cache");
+            set_app_state(state);
+
+            let response = pull_request_changes(
+                request_with_number(
+                    "GET /repos/acme/widgets/prs/7/changes HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                    "7",
+                )
+                .with_params(
+                    [
+                        ("owner".to_string(), "acme".to_string()),
+                        ("repo".to_string(), "widgets".to_string()),
+                        ("number".to_string(), "7".to_string()),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            )
+            .await;
+
+            assert_eq!(response.status_code(), 200);
+            let body = body_text(&response);
+            assert!(body.contains("PR #7 · Improve auth"));
+            assert!(body.contains("data-needs-refresh=\"true\""));
+            assert!(body.contains("skeleton-stack"));
+        });
+    }
+
+    #[test]
     fn comment_post_redirects_with_success_flash() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
@@ -410,7 +522,6 @@ mod tests {
             set_app_state(AppState {
                 gh: GhClient::with_runner(Arc::new(MockRunner::default()), Duration::from_secs(3)),
                 startup_repo: None,
-                diagnostics: None,
                 startup_error: Some(GhError::NotAuthenticated),
                 startup_elapsed: Duration::from_millis(15),
             });

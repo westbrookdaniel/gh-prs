@@ -2,6 +2,7 @@ use crate::gh::models::RepoContext;
 use crate::handlers::context::{parse_pr_number, repo_from_request};
 use crate::handlers::flash::flash_from_query;
 use crate::handlers::format::{render_gh_error, render_template};
+use crate::handlers::load::{PageLoadMode, loadable_from_cached};
 use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::{PrChangesTemplate, changes_page_model};
@@ -31,46 +32,39 @@ pub async fn pull_request_changes(request: Request) -> Response {
         Err(err) => return render_gh_error(err),
     };
 
-    let maybe_conversation = match state
-        .gh
-        .cached_pull_request_conversation(&repo_name, number)
-        .await
-    {
-        Ok(value) => value,
-        Err(err) => return render_gh_error(err),
-    };
-    let maybe_files = match state.gh.cached_pull_request_files(&repo_name, number).await {
-        Ok(value) => value,
-        Err(err) => return render_gh_error(err),
-    };
+    let load_mode = PageLoadMode::from_request(&request);
 
-    let detail = maybe_conversation
-        .map(|cached| cached.value.detail)
-        .unwrap_or(crate::gh::models::PullRequestDetail {
-            number,
-            title: "Loading pull request changes...".to_string(),
-            body: String::new(),
-            state: "OPEN".to_string(),
-            is_draft: false,
-            author: "loading".to_string(),
-            created_at: String::new(),
-            updated_at: String::new(),
-            url: format!("https://github.com/{repo_name}/pull/{number}"),
-            base_ref_name: "main".to_string(),
-            head_ref_name: "...".to_string(),
-            merge_state_status: "UNKNOWN".to_string(),
-            mergeable: "UNKNOWN".to_string(),
-            review_decision: None,
-            requested_reviewers: Vec::new(),
-            latest_reviewer_decisions: Vec::new(),
-            checks: crate::gh::models::StatusChecksSummary::default(),
-            commit_count: 0,
-            file_count: 0,
-        });
-    let files = maybe_files.map(|cached| cached.value).unwrap_or_default();
-    let is_loading = files.is_empty();
+    let (detail, files) = if load_mode.bypass_cache() {
+        let conversation = match state.gh.refresh_pull_request_conversation(&repo_name, number).await {
+            Ok(value) => value,
+            Err(err) => return render_gh_error(err),
+        };
+        let files = match state.gh.refresh_pull_request_files(&repo_name, number).await {
+            Ok(value) => value,
+            Err(err) => return render_gh_error(err),
+        };
 
-    let model = changes_page_model(&repo_context, detail, files, is_loading, flash, &request);
+        (
+            crate::views::types::Loadable::ready(conversation.detail, false),
+            crate::views::types::Loadable::ready(files, false),
+        )
+    } else {
+        let detail = match state.gh.cached_pull_request_conversation(&repo_name, number).await {
+            Ok(value) => match value {
+                Some(cached) => crate::views::types::Loadable::ready(cached.value.detail, cached.is_stale),
+                None => crate::views::types::Loadable::missing(),
+            },
+            Err(err) => return render_gh_error(err),
+        };
+        let files = match state.gh.cached_pull_request_files(&repo_name, number).await {
+            Ok(value) => loadable_from_cached(value),
+            Err(err) => return render_gh_error(err),
+        };
+        (detail, files)
+    };
+    let needs_refresh = !load_mode.bypass_cache() && (detail.needs_refresh() || files.needs_refresh());
+
+    let model = changes_page_model(&repo_context, number, detail, files, needs_refresh, flash, &request);
     let template = PrChangesTemplate { model };
     render_template(200, "OK", &template)
 }

@@ -1,4 +1,8 @@
-use crate::gh::models::{StatusCheckJob, StatusChecksSummary};
+use crate::gh::models::{
+    PullRequestConversation, PullRequestDetail, PullRequestFile, PullRequestSearchItem,
+    StatusCheckJob, StatusChecksSummary,
+};
+use crate::search::SearchArgs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlashMessageView {
@@ -23,37 +27,29 @@ impl FlashMessageView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrListRowView {
-    pub repo_name_with_owner: String,
-    pub number: u64,
-    pub detail_path: String,
-    pub title: String,
-    pub state_label: String,
-    pub state_tone: String,
-    pub state_tooltip: String,
-    pub author: String,
-    pub author_avatar_url: String,
-    pub author_avatar_fallback: bool,
-    pub author_avatar_style: String,
-    pub author_initial: String,
-    pub updated_at: String,
-    pub comment_count: usize,
+pub struct Loadable<T> {
+    pub value: Option<T>,
+    pub is_stale: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RepoOptionView {
-    pub value: String,
-    pub selected: bool,
-}
+impl<T> Loadable<T> {
+    pub fn missing() -> Self {
+        Self {
+            value: None,
+            is_stale: false,
+        }
+    }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FilterFormView {
-    pub repos: Vec<String>,
-    pub status: String,
-    pub title: String,
-    pub author: String,
-    pub sort: String,
-    pub order: String,
+    pub fn ready(value: T, is_stale: bool) -> Self {
+        Self {
+            value: Some(value),
+            is_stale,
+        }
+    }
+
+    pub fn needs_refresh(&self) -> bool {
+        self.is_stale || self.value.is_none()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,35 +151,6 @@ pub struct CheckJobView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DetailHeaderView {
-    pub number: u64,
-    pub title: String,
-    pub state_label: String,
-    pub state_tone: String,
-    pub state_tooltip: String,
-    pub is_draft: bool,
-    pub draft_label: String,
-    pub draft_tooltip: String,
-    pub author: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub url: String,
-    pub base_ref_name: String,
-    pub head_ref_name: String,
-    pub merge_state_status: String,
-    pub merge_state_tone: String,
-    pub merge_state_tooltip: String,
-    pub merge_state_explainer: Option<String>,
-    pub mergeable: String,
-    pub review_decision: String,
-    pub review_decision_tone: String,
-    pub review_decision_tooltip: String,
-    pub commit_count: usize,
-    pub file_count: usize,
-    pub can_merge: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffLineView {
     pub kind_class: String,
     pub text: String,
@@ -215,26 +182,98 @@ pub struct DiffTreeItemView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrListPageModel {
     pub page_title: String,
-    pub refresh_sse_path: String,
-    pub is_loading: bool,
-    pub row_count: usize,
-    pub rows: Vec<PrListRowView>,
-    pub repo_options: Vec<RepoOptionView>,
-    pub filters: FilterFormView,
+    pub refresh_path: String,
+    pub needs_refresh: bool,
+    pub query: SearchArgs,
+    pub repo_options: Loadable<Vec<String>>,
+    pub results: Loadable<Vec<PullRequestSearchItem>>,
     pub sort_controls: Vec<SortControlView>,
-    pub has_results_limit_warning: bool,
     pub flash: Option<FlashMessageView>,
     pub tabs: Vec<ListTabView>,
+}
+
+impl PrListPageModel {
+    pub fn row_count(&self) -> usize {
+        self.results.value.as_ref().map_or(0, Vec::len)
+    }
+
+    pub fn has_results_limit_warning(&self) -> bool {
+        self.query.limit >= crate::gh::models::DEFAULT_SEARCH_LIMIT
+            && self.row_count() >= crate::gh::models::DEFAULT_SEARCH_LIMIT
+    }
+
+    pub fn is_repo_selected(&self, repo: &str) -> bool {
+        self.query.repos.iter().any(|value| value == repo)
+    }
+
+    pub fn status_value(&self) -> &str {
+        self.query.status.as_query_value()
+    }
+
+    pub fn sort_value(&self) -> &str {
+        self.query.sort.as_query_value()
+    }
+
+    pub fn order_value(&self) -> &str {
+        self.query.order.as_query_value()
+    }
+
+    pub fn title_value(&self) -> &str {
+        self.query.title.as_deref().unwrap_or_default()
+    }
+
+    pub fn author_value(&self) -> &str {
+        self.query.author.as_deref().unwrap_or_default()
+    }
+
+    pub fn detail_path(&self, item: &PullRequestSearchItem) -> String {
+        super::helpers::detail_path_from_repo(
+            &item.repository_name_with_owner,
+            item.number,
+            self.query.to_query_string().as_deref(),
+        )
+    }
+
+    pub fn author_avatar_fallback(&self, item: &PullRequestSearchItem) -> bool {
+        self.author_avatar_url(item).trim().is_empty()
+    }
+
+    pub fn author_avatar_url(&self, item: &PullRequestSearchItem) -> String {
+        super::helpers::author_avatar_url(&item.author, &item.author_avatar_url)
+    }
+
+    pub fn author_avatar_style(&self, item: &PullRequestSearchItem) -> String {
+        super::helpers::avatar_style_from_author(&item.author)
+    }
+
+    pub fn author_initial(&self, item: &PullRequestSearchItem) -> String {
+        super::helpers::author_initial(&item.author)
+    }
+
+    pub fn state_label(&self, item: &PullRequestSearchItem) -> String {
+        super::helpers::state_label(item.state.clone(), item.is_draft)
+    }
+
+    pub fn state_tone(&self, item: &PullRequestSearchItem) -> String {
+        super::helpers::pr_state_tone(&item.state, item.is_draft)
+    }
+
+    pub fn state_tooltip(&self, item: &PullRequestSearchItem) -> String {
+        super::helpers::pr_state_tooltip(&item.state, item.is_draft)
+    }
+
+    pub fn formatted_updated_at(&self, item: &PullRequestSearchItem) -> String {
+        super::helpers::format_timestamp(&item.updated_at)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrDetailPageModel {
     pub page_title: String,
-    pub refresh_sse_path: String,
-    pub is_loading: bool,
-    pub repo_name: String,
-    pub repo_url: String,
-    pub header: DetailHeaderView,
+    pub refresh_path: String,
+    pub needs_refresh: bool,
+    pub repo: crate::gh::models::RepoContext,
+    pub conversation: Loadable<PullRequestConversation>,
     pub reviewer_statuses: Vec<ReviewerStatusView>,
     pub reviewer_options: Vec<String>,
     pub checks: ChecksSummaryView,
@@ -245,30 +284,171 @@ pub struct PrDetailPageModel {
     pub reviewers_post_path: String,
     pub merge_post_path: String,
     pub state_post_path: String,
-    pub merge_button_tone: String,
-    pub merge_button_label: String,
-    pub merge_button_reason: String,
-    pub merge_button_disabled: bool,
-    pub is_open: bool,
-    pub is_closed: bool,
     pub flash: Option<FlashMessageView>,
     pub back_to_list_href: String,
     pub tabs: Vec<DetailTabView>,
 }
 
+impl PrDetailPageModel {
+    pub fn state_label(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::state_label(detail.state.clone(), detail.is_draft)
+    }
+
+    pub fn state_tone(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::pr_state_tone(&detail.state, detail.is_draft)
+    }
+
+    pub fn state_tooltip(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::pr_state_tooltip(&detail.state, detail.is_draft)
+    }
+
+    pub fn draft_tooltip(&self) -> &'static str {
+        "Draft pull request; not ready to merge"
+    }
+
+    pub fn formatted_created_at(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::format_timestamp(&detail.created_at)
+    }
+
+    pub fn formatted_updated_at(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::format_timestamp(&detail.updated_at)
+    }
+
+    pub fn merge_state_tone(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::merge_state_tone(&detail.merge_state_status, &detail.mergeable)
+    }
+
+    pub fn merge_state_tooltip(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::merge_state_tooltip(&detail.merge_state_status, &detail.mergeable)
+    }
+
+    pub fn merge_state_explainer(&self, detail: &PullRequestDetail) -> Option<String> {
+        super::helpers::merge_state_explainer(&detail.merge_state_status)
+    }
+
+    pub fn review_decision<'a>(&self, detail: &'a PullRequestDetail) -> &'a str {
+        detail.review_decision.as_deref().unwrap_or("NONE")
+    }
+
+    pub fn review_decision_tone(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::review_decision_tone(self.review_decision(detail))
+    }
+
+    pub fn review_decision_tooltip(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::review_decision_tooltip(self.review_decision(detail))
+    }
+
+    pub fn is_open(&self, detail: &PullRequestDetail) -> bool {
+        detail.state.eq_ignore_ascii_case("OPEN")
+    }
+
+    pub fn is_closed(&self, detail: &PullRequestDetail) -> bool {
+        detail.state.eq_ignore_ascii_case("CLOSED")
+    }
+
+    pub fn merge_button_tone(&self, detail: &PullRequestDetail) -> String {
+        let (tone, _, _, _) = self.merge_button(detail);
+        tone
+    }
+
+    pub fn merge_button_label(&self, detail: &PullRequestDetail) -> String {
+        let (_, label, _, _) = self.merge_button(detail);
+        label
+    }
+
+    pub fn merge_button_reason(&self, detail: &PullRequestDetail) -> String {
+        let (_, _, reason, _) = self.merge_button(detail);
+        reason
+    }
+
+    pub fn merge_button_disabled(&self, detail: &PullRequestDetail) -> bool {
+        let (_, _, _, disabled) = self.merge_button(detail);
+        disabled
+    }
+
+    fn merge_button(&self, detail: &PullRequestDetail) -> (String, String, String, bool) {
+        let has_failing_checks = detail.checks.failed > 0;
+        let has_pending_checks = detail.checks.pending > 0;
+        let mergeable_clean = detail.mergeable.eq_ignore_ascii_case("MERGEABLE");
+
+        if !self.is_open(detail) {
+            (
+                "secondary".to_string(),
+                "Cannot Merge".to_string(),
+                "PR is not open".to_string(),
+                true,
+            )
+        } else if !mergeable_clean {
+            (
+                "danger".to_string(),
+                "Blocked".to_string(),
+                "Merge conflicts or branch issues detected".to_string(),
+                true,
+            )
+        } else if has_failing_checks {
+            (
+                "warning".to_string(),
+                "Merge Risk".to_string(),
+                "One or more checks are failing".to_string(),
+                false,
+            )
+        } else if has_pending_checks {
+            (
+                "warning".to_string(),
+                "Merge Pending".to_string(),
+                "Checks are still running".to_string(),
+                false,
+            )
+        } else {
+            (
+                "approve".to_string(),
+                "Merge PR".to_string(),
+                "Ready to merge".to_string(),
+                false,
+            )
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrChangesPageModel {
     pub page_title: String,
-    pub refresh_sse_path: String,
-    pub is_loading: bool,
-    pub repo_name: String,
-    pub repo_url: String,
-    pub header: DetailHeaderView,
-    pub files: Vec<DiffFileView>,
+    pub refresh_path: String,
+    pub needs_refresh: bool,
+    pub repo: crate::gh::models::RepoContext,
+    pub detail: Loadable<PullRequestDetail>,
+    pub files: Loadable<Vec<PullRequestFile>>,
+    pub rendered_files: Vec<DiffFileView>,
     pub tree_items: Vec<DiffTreeItemView>,
     pub flash: Option<FlashMessageView>,
     pub back_to_list_href: String,
     pub tabs: Vec<DetailTabView>,
+}
+
+impl PrChangesPageModel {
+    pub fn state_label(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::state_label(detail.state.clone(), detail.is_draft)
+    }
+
+    pub fn state_tone(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::pr_state_tone(&detail.state, detail.is_draft)
+    }
+
+    pub fn state_tooltip(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::pr_state_tooltip(&detail.state, detail.is_draft)
+    }
+
+    pub fn draft_tooltip(&self) -> &'static str {
+        "Draft pull request; not ready to merge"
+    }
+
+    pub fn merge_state_tone(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::merge_state_tone(&detail.merge_state_status, &detail.mergeable)
+    }
+
+    pub fn merge_state_tooltip(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::merge_state_tooltip(&detail.merge_state_status, &detail.mergeable)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

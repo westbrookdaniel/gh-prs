@@ -15,24 +15,26 @@
 
       <cp-combobox id="repo-combobox" source-selector="#repo-options-source" input-name="repo" placeholder="Search repos..." empty-label="All repos" no-results-label="No repos found" class="toolbar-combo"></cp-combobox>
       <select id="repo-options-source" class="repo-option-source" hidden multiple>
-        {% for option in model.repo_options %}
-        <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}></option>
+        {% if let Some(repo_options) = model.repo_options.value %}
+        {% for option in repo_options %}
+        <option value="{{ option }}" {% if model.is_repo_selected(option) %}selected{% endif %}></option>
         {% endfor %}
+        {% endif %}
       </select>
 
-      <input id="filter-title" class="toolbar-input" type="text" name="title" value="{{ model.filters.title }}" placeholder="Search title" />
-      <input id="filter-author" class="toolbar-input" type="text" name="author" value="{{ model.filters.author }}" placeholder="Search author" />
+      <input id="filter-title" class="toolbar-input" type="text" name="title" value="{{ model.title_value() }}" placeholder="Search title" />
+      <input id="filter-author" class="toolbar-input" type="text" name="author" value="{{ model.author_value() }}" placeholder="Search author" />
 
       <cp-combobox id="status-combobox" source-selector="#status-options-source" input-name="status" placeholder="Select status" empty-label="Status" no-results-label="No statuses found" class="toolbar-combo single"></cp-combobox>
       <select id="status-options-source" hidden>
-        <option value="all" {% if model.filters.status == "all" %}selected{% endif %}>All</option>
-        <option value="open" {% if model.filters.status == "open" %}selected{% endif %}>Open</option>
-        <option value="closed" {% if model.filters.status == "closed" %}selected{% endif %}>Closed</option>
-        <option value="merged" {% if model.filters.status == "merged" %}selected{% endif %}>Merged</option>
+        <option value="all" {% if model.status_value() == "all" %}selected{% endif %}>All</option>
+        <option value="open" {% if model.status_value() == "open" %}selected{% endif %}>Open</option>
+        <option value="closed" {% if model.status_value() == "closed" %}selected{% endif %}>Closed</option>
+        <option value="merged" {% if model.status_value() == "merged" %}selected{% endif %}>Merged</option>
       </select>
 
-      <input type="hidden" name="sort" value="{{ model.filters.sort }}" />
-      <input type="hidden" name="order" value="{{ model.filters.order }}" />
+      <input type="hidden" name="sort" value="{{ model.sort_value() }}" />
+      <input type="hidden" name="order" value="{{ model.order_value() }}" />
 
       <div class="toolbar-actions">
         <cp-button type="submit" variant="default">Apply</cp-button>

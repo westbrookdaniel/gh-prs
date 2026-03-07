@@ -1,4 +1,5 @@
 let pendingNavigationController = null;
+let pendingRefreshController = null;
 
 function isPrimaryNavigation(event) {
   return (
@@ -82,8 +83,39 @@ function parseNavigationDocument(html) {
   };
 }
 
+function currentMainPage() {
+  const main = document.querySelector("main.page");
+  return main instanceof HTMLElement ? main : null;
+}
+
+function cancelPendingRefresh() {
+  if (pendingRefreshController) {
+    pendingRefreshController.abort();
+    pendingRefreshController = null;
+  }
+}
+
+function clearRefreshStatus(main) {
+  const status = main.querySelector("[data-page-refresh-status]");
+  if (status instanceof HTMLElement) {
+    status.replaceChildren();
+  }
+}
+
+function setRefreshStatus(main, message) {
+  const status = main.querySelector("[data-page-refresh-status]");
+  if (!(status instanceof HTMLElement)) {
+    return;
+  }
+
+  const alert = document.createElement("cp-alert");
+  alert.setAttribute("tone", "error");
+  alert.textContent = message;
+  status.replaceChildren(alert);
+}
+
 function applyNavigationDocument(parsed, url, options) {
-  const currentMain = document.querySelector("main.page");
+  const currentMain = currentMainPage();
   if (!(currentMain instanceof HTMLElement)) {
     return false;
   }
@@ -111,6 +143,8 @@ function applyNavigationDocument(parsed, url, options) {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }
 
+  initializePageRefresh();
+
   return true;
 }
 
@@ -118,10 +152,102 @@ function setNavigationPending(isPending) {
   document.documentElement.classList.toggle("is-nav-pending", isPending);
 }
 
+async function refreshPageData(main = currentMainPage()) {
+  cancelPendingRefresh();
+
+  if (!(main instanceof HTMLElement)) {
+    return;
+  }
+
+  clearRefreshStatus(main);
+  if (main.dataset.needsRefresh !== "true") {
+    return;
+  }
+
+  const refreshPath = main.dataset.refreshPath || window.location.href;
+  const refreshUrl = new URL(refreshPath, window.location.href);
+  refreshUrl.searchParams.set("nocache", "1");
+
+  const controller = new AbortController();
+  pendingRefreshController = controller;
+
+  try {
+    const response = await fetch(refreshUrl.toString(), {
+      method: "GET",
+      credentials: "same-origin",
+      headers: {
+        "X-Requested-With": "gh-prs-refresh",
+      },
+      signal: controller.signal,
+    });
+
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    if (!response.ok) {
+      throw new Error(`Refresh failed (${response.status})`);
+    }
+    if (!contentType.includes("text/html")) {
+      throw new Error("Refresh returned an unexpected response.");
+    }
+
+    const html = await response.text();
+    const parsed = parseNavigationDocument(html);
+    if (!parsed) {
+      throw new Error("Refresh returned an invalid page.");
+    }
+
+    const currentMain = currentMainPage();
+    if (!(currentMain instanceof HTMLElement) || currentMain !== main) {
+      return;
+    }
+    if (!window.Idiomorph || typeof window.Idiomorph.morph !== "function") {
+      throw new Error("Refresh support is unavailable.");
+    }
+
+    window.Idiomorph.morph(currentMain, parsed.main, { morphStyle: "outerHTML" });
+    if (parsed.title && parsed.title.trim() !== "") {
+      document.title = parsed.title;
+    }
+
+    const nextMain = currentMainPage();
+    if (nextMain) {
+      clearRefreshStatus(nextMain);
+      initializePageRefresh(nextMain);
+    }
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      const activeMain = currentMainPage();
+      if (activeMain) {
+        setRefreshStatus(
+          activeMain,
+          error instanceof Error ? error.message : "Unable to refresh page data.",
+        );
+      }
+    }
+  } finally {
+    if (pendingRefreshController === controller) {
+      pendingRefreshController = null;
+    }
+  }
+}
+
+function initializePageRefresh(main = currentMainPage()) {
+  if (!(main instanceof HTMLElement)) {
+    return;
+  }
+
+  queueMicrotask(() => {
+    if (currentMainPage() === main) {
+      void refreshPageData(main);
+    }
+  });
+}
+
 async function navigate(urlLike, options = {}) {
   const url = new URL(urlLike, window.location.href);
   const replaceHistory = options.replaceHistory === true;
   const preserveScroll = options.preserveScroll === true;
+
+  cancelPendingRefresh();
 
   if (pendingNavigationController) {
     pendingNavigationController.abort();
@@ -243,3 +369,5 @@ document.addEventListener(
   },
   true,
 );
+
+initializePageRefresh();

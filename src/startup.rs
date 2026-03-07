@@ -1,6 +1,6 @@
 use crate::gh::GhError;
 use crate::gh::client::GhClient;
-use crate::gh::models::{PreflightDiagnostics, RepoContext};
+use crate::gh::models::RepoContext;
 use crate::{cache_store, cache_store::SqliteCacheStore};
 use std::env;
 use std::io;
@@ -16,7 +16,6 @@ pub struct StartupConfig {
 
 #[derive(Debug, Clone)]
 pub struct StartupResult {
-    pub diagnostics: Option<PreflightDiagnostics>,
     pub repo: Option<RepoContext>,
     pub startup_error: Option<GhError>,
     pub startup_elapsed: Duration,
@@ -27,22 +26,20 @@ pub async fn run_startup_checks(explicit_repo: Option<&str>) -> StartupResult {
     let gh = GhClient::default();
     let _ = gh.cache_db_path();
 
-    let diagnostics = match gh.preflight().await {
-        Ok(value) => value,
+    match gh.preflight().await {
+        Ok(_) => {}
         Err(error) => {
             return StartupResult {
-                diagnostics: None,
                 repo: None,
                 startup_error: Some(error),
                 startup_elapsed: started.elapsed(),
             };
         }
-    };
+    }
 
     let repo = gh.resolve_repo(explicit_repo).await.ok();
 
     StartupResult {
-        diagnostics: Some(diagnostics),
         repo,
         startup_error: None,
         startup_elapsed: started.elapsed(),

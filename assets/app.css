@@ -217,11 +217,11 @@ summary:focus-visible,
   width: min(1260px, 100%);
 }
 
-.stream-status:empty {
+.page-refresh-status:empty {
   display: none;
 }
 
-.stream-status {
+.page-refresh-status {
   display: block;
 }
 

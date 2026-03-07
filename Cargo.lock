@@ -357,15 +357,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "datastar"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0805c542838bb4c0769e26e1cdf70ff913e43e146b7e7563241fe95f32606643"
-dependencies = [
- "chrono",
-]
-
-[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -585,7 +576,6 @@ dependencies = [
  "async-channel",
  "async-net",
  "chrono",
- "datastar",
  "futures-lite",
  "httparse",
  "opentelemetry",
