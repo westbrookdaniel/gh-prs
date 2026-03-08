@@ -325,12 +325,15 @@ mod tests {
                 .await
                 .expect("set b");
 
-            store
-                .invalidate_prefix("pr|")
-                .await
-                .expect("invalidate");
+            store.invalidate_prefix("pr|").await.expect("invalidate");
 
-            assert!(store.get("pr|detail|acme/widgets|1").await.expect("get a").is_none());
+            assert!(
+                store
+                    .get("pr|detail|acme/widgets|1")
+                    .await
+                    .expect("get a")
+                    .is_none()
+            );
             assert!(store.get("preflight|diag").await.expect("get b").is_some());
 
             fs::remove_dir_all(db_path.parent().expect("parent")).expect("cleanup");

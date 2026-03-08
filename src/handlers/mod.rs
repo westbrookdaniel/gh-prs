@@ -5,8 +5,8 @@ pub mod flash;
 pub mod format;
 pub mod forms;
 pub mod health;
-pub mod load;
 pub mod list;
+pub mod load;
 pub mod not_found;
 pub mod routes;
 pub mod state;
@@ -145,8 +145,7 @@ mod tests {
     fn list_handler_renders_rows() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
-            let state = state_with_responses(vec![
-                ok(r#"[
+            let state = state_with_responses(vec![ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,
@@ -159,8 +158,7 @@ mod tests {
                     "url":"https://example/pr/7",
                     "commentsCount":2
                 }
-            ]"#),
-            ]);
+            ]"#)]);
             state
                 .gh
                 .refresh_search_pull_requests(&SearchArgs::default())
@@ -538,8 +536,7 @@ mod tests {
     fn list_links_preserve_query_context() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
-            let state = state_with_responses(vec![
-                ok(r#"[
+            let state = state_with_responses(vec![ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,
@@ -552,8 +549,7 @@ mod tests {
                     "url":"https://example/pr/7",
                     "commentsCount":2
                 }
-            ]"#),
-            ]);
+            ]"#)]);
             let query = SearchArgs {
                 org: Some("acme".to_string()),
                 status: PullRequestStatus::Open,

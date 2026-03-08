@@ -9,7 +9,7 @@ use crate::views::types::{
 };
 use ammonia::Builder;
 use chrono::{DateTime, Local};
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{Options, Parser, html};
 use std::collections::HashSet;
 
 pub fn clamp_flash(message: String) -> String {
@@ -434,7 +434,9 @@ pub fn repo_action_path(repo: &str, number: u64, action: &str, query: Option<&st
 }
 
 pub fn with_query(mut path: String, query: Option<&str>) -> String {
-    if let Some(query) = query && !query.is_empty() {
+    if let Some(query) = query
+        && !query.is_empty()
+    {
         path.push('?');
         path.push_str(query);
     }

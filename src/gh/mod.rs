@@ -52,16 +52,29 @@ impl CommandClass {
 pub enum GhError {
     GhNotInstalled,
     NotAuthenticated,
-    RepositoryUnavailable { repo: String },
-    PullRequestNotFound { number: u64 },
-    CommandTimeout { class: CommandClass, timeout: Duration },
+    RepositoryUnavailable {
+        repo: String,
+    },
+    PullRequestNotFound {
+        number: u64,
+    },
+    CommandTimeout {
+        class: CommandClass,
+        timeout: Duration,
+    },
     CommandFailed {
         class: CommandClass,
         code: Option<i32>,
         stderr: String,
     },
-    ParseFailure { class: CommandClass, details: String },
-    InvalidInput { field: String, details: String },
+    ParseFailure {
+        class: CommandClass,
+        details: String,
+    },
+    InvalidInput {
+        field: String,
+        details: String,
+    },
     Internal(String),
 }
 

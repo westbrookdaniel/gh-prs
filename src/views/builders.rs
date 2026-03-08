@@ -10,8 +10,8 @@ use crate::views::helpers::{
     review_state_tone, sort_controls, with_query,
 };
 use crate::views::types::{
-    checks_view, ErrorPageModel, FlashMessageView, IssueCommentView, Loadable, PrChangesPageModel,
-    PrDetailPageModel, PrListPageModel, PullRequestReviewView, ReviewCommentView,
+    ErrorPageModel, FlashMessageView, IssueCommentView, Loadable, PrChangesPageModel,
+    PrDetailPageModel, PrListPageModel, PullRequestReviewView, ReviewCommentView, checks_view,
 };
 
 pub struct ListPageModelInput<'a> {

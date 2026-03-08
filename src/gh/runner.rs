@@ -48,12 +48,12 @@ impl CommandRunner for SystemCommandRunner {
         if let Some(input) = command.stdin
             && let Some(mut stdin) = child.stdin.take()
         {
-                stdin.write_all(&input).map_err(|err| {
-                    GhError::Internal(format!(
-                        "failed writing stdin for {}: {err}",
-                        command.class.as_str()
-                    ))
-                })?;
+            stdin.write_all(&input).map_err(|err| {
+                GhError::Internal(format!(
+                    "failed writing stdin for {}: {err}",
+                    command.class.as_str()
+                ))
+            })?;
         }
 
         let stdout_handle = spawn_pipe_reader(child.stdout.take());
