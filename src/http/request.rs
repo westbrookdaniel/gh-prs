@@ -12,6 +12,7 @@ pub struct Request {
     pub body: Vec<u8>,
     query_params: HashMap<String, Vec<String>>,
     params: HashMap<String, String>,
+    matched_route: Option<String>,
 }
 
 impl Request {
@@ -80,7 +81,9 @@ impl Request {
                 .trim()
                 .to_string();
 
-            if name == "content-length" && let Some(existing) = headers.get(&name) {
+            if name == "content-length"
+                && let Some(existing) = headers.get(&name)
+            {
                 if existing != &value {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -136,6 +139,7 @@ impl Request {
             body,
             query_params,
             params: HashMap::new(),
+            matched_route: None,
         })
     }
 
@@ -154,6 +158,10 @@ impl Request {
             .get(name)
             .and_then(|values| values.first())
             .map(String::as_str)
+    }
+
+    pub fn matched_route(&self) -> Option<&str> {
+        self.matched_route.as_deref()
     }
 
     pub fn query_values(&self, name: &str) -> Option<&[String]> {
@@ -194,6 +202,11 @@ impl Request {
 
     pub(crate) fn with_params(mut self, params: HashMap<String, String>) -> Self {
         self.params = params;
+        self
+    }
+
+    pub(crate) fn with_matched_route(mut self, matched_route: String) -> Self {
+        self.matched_route = Some(matched_route);
         self
     }
 }

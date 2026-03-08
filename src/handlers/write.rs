@@ -8,6 +8,14 @@ use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::FlashMessageView;
 
+#[tracing::instrument(
+    name = "handler.submit_comment",
+    skip(request),
+    fields(
+        http.request.method = %request.method,
+        http.route = request.matched_route().unwrap_or(request.path.as_str())
+    )
+)]
 pub async fn submit_comment(request: Request) -> Response {
     let state = app_state_snapshot();
 
@@ -58,6 +66,14 @@ pub async fn submit_comment(request: Request) -> Response {
     }
 }
 
+#[tracing::instrument(
+    name = "handler.submit_review",
+    skip(request),
+    fields(
+        http.request.method = %request.method,
+        http.route = request.matched_route().unwrap_or(request.path.as_str())
+    )
+)]
 pub async fn submit_review(request: Request) -> Response {
     let state = app_state_snapshot();
 
@@ -127,6 +143,14 @@ pub async fn submit_review(request: Request) -> Response {
     }
 }
 
+#[tracing::instrument(
+    name = "handler.update_reviewers",
+    skip(request),
+    fields(
+        http.request.method = %request.method,
+        http.route = request.matched_route().unwrap_or(request.path.as_str())
+    )
+)]
 pub async fn update_reviewers(request: Request) -> Response {
     let state = app_state_snapshot();
 
@@ -190,6 +214,14 @@ pub async fn update_reviewers(request: Request) -> Response {
     }
 }
 
+#[tracing::instrument(
+    name = "handler.merge_pull_request",
+    skip(request),
+    fields(
+        http.request.method = %request.method,
+        http.route = request.matched_route().unwrap_or(request.path.as_str())
+    )
+)]
 pub async fn merge_pull_request(request: Request) -> Response {
     let state = app_state_snapshot();
 
@@ -253,6 +285,14 @@ pub async fn merge_pull_request(request: Request) -> Response {
     }
 }
 
+#[tracing::instrument(
+    name = "handler.update_pull_request_state",
+    skip(request),
+    fields(
+        http.request.method = %request.method,
+        http.route = request.matched_route().unwrap_or(request.path.as_str())
+    )
+)]
 pub async fn update_pull_request_state(request: Request) -> Response {
     let state = app_state_snapshot();
 

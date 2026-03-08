@@ -5,6 +5,14 @@ use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::{ListPageModelInput, PrListTemplate, SearchArgs, list_page_model};
 
+#[tracing::instrument(
+    name = "handler.list_pull_requests",
+    skip(request),
+    fields(
+        http.request.method = %request.method,
+        http.route = request.matched_route().unwrap_or(request.path.as_str())
+    )
+)]
 pub async fn list_pull_requests(request: Request) -> Response {
     let flash = flash_from_query(&request);
     let state = app_state_snapshot();
@@ -39,8 +47,8 @@ pub async fn list_pull_requests(request: Request) -> Response {
             Err(err) => return render_gh_error(err),
         }
     };
-    let needs_refresh = !load_mode.bypass_cache()
-        && (repo_options.needs_refresh() || results.needs_refresh());
+    let needs_refresh =
+        !load_mode.bypass_cache() && (repo_options.needs_refresh() || results.needs_refresh());
 
     let model = list_page_model(ListPageModelInput {
         query: &query,

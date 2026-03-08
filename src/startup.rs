@@ -21,6 +21,7 @@ pub struct StartupResult {
     pub startup_elapsed: Duration,
 }
 
+#[tracing::instrument(name = "startup.run_checks", skip_all, fields(repo = explicit_repo.unwrap_or("-")))]
 pub async fn run_startup_checks(explicit_repo: Option<&str>) -> StartupResult {
     let started = Instant::now();
     let gh = GhClient::default();

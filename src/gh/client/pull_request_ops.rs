@@ -11,6 +11,7 @@ use crate::gh_parsing::{
 };
 
 impl GhClient {
+    #[tracing::instrument(name = "gh.submit_comment", skip(self, body), fields(repo = repo, pr = number))]
     pub async fn submit_comment(&self, repo: &str, number: u64, body: &str) -> GhResult<()> {
         let repo = validate_repo_identifier(repo)?;
         validate_pr_number(number)?;
@@ -36,6 +37,7 @@ impl GhClient {
         self.invalidate_pr_cache().await
     }
 
+    #[tracing::instrument(name = "gh.submit_review", skip(self, body), fields(repo = repo, pr = number))]
     pub async fn submit_review(
         &self,
         repo: &str,
@@ -68,6 +70,7 @@ impl GhClient {
         self.invalidate_pr_cache().await
     }
 
+    #[tracing::instrument(name = "gh.update_reviewers", skip(self, reviewers), fields(repo = repo, pr = number))]
     pub async fn update_reviewers(
         &self,
         repo: &str,
@@ -102,6 +105,7 @@ impl GhClient {
         self.invalidate_pr_cache().await
     }
 
+    #[tracing::instrument(name = "gh.merge_pull_request", skip(self), fields(repo = repo, pr = number))]
     pub async fn merge_pull_request(
         &self,
         repo: &str,
@@ -136,6 +140,7 @@ impl GhClient {
         self.invalidate_pr_cache().await
     }
 
+    #[tracing::instrument(name = "gh.update_pull_request_state", skip(self), fields(repo = repo, pr = number))]
     pub async fn update_pull_request_state(
         &self,
         repo: &str,
@@ -162,6 +167,7 @@ impl GhClient {
         self.invalidate_pr_cache().await
     }
 
+    #[tracing::instrument(name = "gh.invalidate_pr_cache", skip(self))]
     async fn invalidate_pr_cache(&self) -> GhResult<()> {
         self.cache
             .invalidate_prefix(&self.cache_key("pr|"))
@@ -170,6 +176,7 @@ impl GhClient {
         Ok(())
     }
 
+    #[tracing::instrument(name = "gh.fetch_pull_request_detail", skip(self), fields(repo = repo, pr = number))]
     pub(super) async fn fetch_pull_request_detail(
         &self,
         repo: &str,
@@ -198,6 +205,7 @@ impl GhClient {
         })
     }
 
+    #[tracing::instrument(name = "gh.fetch_issue_comments", skip(self), fields(repo = repo, pr = number))]
     pub(super) async fn fetch_issue_comments(
         &self,
         repo: &str,
@@ -221,6 +229,7 @@ impl GhClient {
         })
     }
 
+    #[tracing::instrument(name = "gh.fetch_pull_request_reviews", skip(self), fields(repo = repo, pr = number))]
     pub(super) async fn fetch_pull_request_reviews(
         &self,
         repo: &str,
@@ -244,6 +253,7 @@ impl GhClient {
         })
     }
 
+    #[tracing::instrument(name = "gh.fetch_pull_request_review_comments", skip(self), fields(repo = repo, pr = number))]
     pub(super) async fn fetch_pull_request_review_comments(
         &self,
         repo: &str,

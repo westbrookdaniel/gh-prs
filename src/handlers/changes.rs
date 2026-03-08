@@ -7,6 +7,14 @@ use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::{PrChangesTemplate, changes_page_model};
 
+#[tracing::instrument(
+    name = "handler.pull_request_changes",
+    skip(request),
+    fields(
+        http.request.method = %request.method,
+        http.route = request.matched_route().unwrap_or(request.path.as_str())
+    )
+)]
 pub async fn pull_request_changes(request: Request) -> Response {
     let flash = flash_from_query(&request);
     let state = app_state_snapshot();
@@ -35,11 +43,19 @@ pub async fn pull_request_changes(request: Request) -> Response {
     let load_mode = PageLoadMode::from_request(&request);
 
     let (detail, files) = if load_mode.bypass_cache() {
-        let conversation = match state.gh.refresh_pull_request_conversation(&repo_name, number).await {
+        let conversation = match state
+            .gh
+            .refresh_pull_request_conversation(&repo_name, number)
+            .await
+        {
             Ok(value) => value,
             Err(err) => return render_gh_error(err),
         };
-        let files = match state.gh.refresh_pull_request_files(&repo_name, number).await {
+        let files = match state
+            .gh
+            .refresh_pull_request_files(&repo_name, number)
+            .await
+        {
             Ok(value) => value,
             Err(err) => return render_gh_error(err),
         };
@@ -49,9 +65,15 @@ pub async fn pull_request_changes(request: Request) -> Response {
             crate::views::types::Loadable::ready(files, false),
         )
     } else {
-        let detail = match state.gh.cached_pull_request_conversation(&repo_name, number).await {
+        let detail = match state
+            .gh
+            .cached_pull_request_conversation(&repo_name, number)
+            .await
+        {
             Ok(value) => match value {
-                Some(cached) => crate::views::types::Loadable::ready(cached.value.detail, cached.is_stale),
+                Some(cached) => {
+                    crate::views::types::Loadable::ready(cached.value.detail, cached.is_stale)
+                }
                 None => crate::views::types::Loadable::missing(),
             },
             Err(err) => return render_gh_error(err),
@@ -62,9 +84,18 @@ pub async fn pull_request_changes(request: Request) -> Response {
         };
         (detail, files)
     };
-    let needs_refresh = !load_mode.bypass_cache() && (detail.needs_refresh() || files.needs_refresh());
+    let needs_refresh =
+        !load_mode.bypass_cache() && (detail.needs_refresh() || files.needs_refresh());
 
-    let model = changes_page_model(&repo_context, number, detail, files, needs_refresh, flash, &request);
+    let model = changes_page_model(
+        &repo_context,
+        number,
+        detail,
+        files,
+        needs_refresh,
+        flash,
+        &request,
+    );
     let template = PrChangesTemplate { model };
     render_template(200, "OK", &template)
 }

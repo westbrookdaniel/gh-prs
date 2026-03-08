@@ -151,7 +151,9 @@ pub fn static_dir(
                     }
                 };
 
-                if options.memory_cache && let Ok(mut state) = cache.lock() {
+                if options.memory_cache
+                    && let Ok(mut state) = cache.lock()
+                {
                     state.insert(cache_key.clone(), loaded.clone());
                 }
 
@@ -190,34 +192,6 @@ pub fn static_dir(
             if request.method == "HEAD" {
                 response = response.into_head_response();
             }
-
-            response
-        })
-    }
-}
-
-pub fn logger() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + Sync + 'static {
-    |request: Request, next: Next| {
-        Box::pin(async move {
-            let method = request.method.clone();
-            let path = request.path.clone();
-            let request_id = request
-                .header("x-request-id")
-                .unwrap_or("missing")
-                .to_string();
-            let started = Instant::now();
-
-            let response = next.run(request).await;
-            let elapsed_ms = started.elapsed().as_millis();
-
-            tracing::info!(
-                http.request.method = %method,
-                url.path = %path,
-                http.response.status_code = response.status_code() as u64,
-                http.request_id = %request_id,
-                http.server_duration_ms = elapsed_ms as u64,
-                "request completed"
-            );
 
             response
         })

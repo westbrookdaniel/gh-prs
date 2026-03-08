@@ -1,8 +1,8 @@
 use crate::http::{MiddlewareFuture, Next, Request, Response};
+use opentelemetry::KeyValue;
 use opentelemetry::global;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::{SpanKind, TraceContextExt, TracerProvider as _};
-use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::env;
 use std::io;
 use std::sync::OnceLock;
-use std::time::Instant;
 use tracing::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::layer::SubscriberExt;
@@ -87,18 +86,18 @@ pub fn request_tracing() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + 
             });
             let method = request.method.clone();
             let path = request.path.clone();
+            let matched_route = request.matched_route().map(str::to_owned);
             let version = request.version.clone();
             let request_id = request
                 .header("x-request-id")
                 .unwrap_or("missing")
                 .to_string();
-            let started = Instant::now();
-
             let span = tracing::info_span!(
                 "http.server.request",
                 otel.kind = ?SpanKind::Server,
                 otel.name = tracing::field::Empty,
                 http.request.method = %method,
+                http.route = tracing::field::Empty,
                 url.path = %path,
                 url.query = tracing::field::Empty,
                 network.protocol.version = %version,
@@ -107,7 +106,11 @@ pub fn request_tracing() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + 
                 http.response.status_code = tracing::field::Empty,
                 otel.trace_id = tracing::field::Empty,
             );
-            span.record("otel.name", format_args!("{method} {path}"));
+            let span_route = matched_route.as_deref().unwrap_or(&path);
+            span.record("otel.name", format_args!("{method} {span_route}"));
+            if let Some(route) = matched_route.as_deref() {
+                span.record("http.route", route);
+            }
             if let Some(query) = &request.query {
                 span.record("url.query", query.as_str());
             }
@@ -117,7 +120,6 @@ pub fn request_tracing() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + 
             span.set_parent(parent_context);
 
             let mut response: Response = next.run(request).instrument(span.clone()).await;
-            let elapsed_ms = started.elapsed().as_millis() as u64;
             let status_code = response.status_code();
             span.record("http.response.status_code", status_code as i64);
 
@@ -128,19 +130,10 @@ pub fn request_tracing() -> impl Fn(Request, Next) -> MiddlewareFuture + Send + 
             if telemetry_exports_enabled() {
                 let context = span.context();
                 global::get_text_map_propagator(|propagator| {
-                    propagator.inject_context(&context, &mut ResponseHeaderInjector::new(&mut response));
+                    propagator
+                        .inject_context(&context, &mut ResponseHeaderInjector::new(&mut response));
                 });
             }
-
-            tracing::info!(
-                http.request.method = %method,
-                url.path = %path,
-                http.response.status_code = status_code as u64,
-                http.request_id = %request_id,
-                otel.trace_id = %trace_id,
-                http.server_duration_ms = elapsed_ms,
-                "request completed"
-            );
 
             response
         })
@@ -168,7 +161,9 @@ fn build_tracer_provider() -> io::Result<SdkTracerProvider> {
 }
 
 fn telemetry_exports_enabled() -> bool {
-    TELEMETRY_STATE.get().is_some_and(|state| state.exports_enabled)
+    TELEMETRY_STATE
+        .get()
+        .is_some_and(|state| state.exports_enabled)
 }
 
 fn otel_exports_enabled() -> bool {
@@ -197,7 +192,9 @@ impl<'a> RequestHeaderExtractor<'a> {
 
 impl Extractor for RequestHeaderExtractor<'_> {
     fn get(&self, key: &str) -> Option<&str> {
-        self.headers.get(&key.to_ascii_lowercase()).map(String::as_str)
+        self.headers
+            .get(&key.to_ascii_lowercase())
+            .map(String::as_str)
     }
 
     fn keys(&self) -> Vec<&str> {

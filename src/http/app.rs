@@ -378,9 +378,15 @@ async fn handle_connection(
 
         let resolved = if method == "HEAD" {
             match router.resolve("HEAD", &path) {
-                ResolveResult::Found { handler, params } => {
-                    ResolveResult::Found { handler, params }
-                }
+                ResolveResult::Found {
+                    handler,
+                    params,
+                    matched_route,
+                } => ResolveResult::Found {
+                    handler,
+                    params,
+                    matched_route,
+                },
                 _ => router.resolve("GET", &path),
             }
         } else {
@@ -388,7 +394,16 @@ async fn handle_connection(
         };
 
         let (request, endpoint): (Request, Handler) = match resolved {
-            ResolveResult::Found { handler, params } => (request.with_params(params), handler),
+            ResolveResult::Found {
+                handler,
+                params,
+                matched_route,
+            } => (
+                request
+                    .with_params(params)
+                    .with_matched_route(matched_route),
+                handler,
+            ),
             ResolveResult::MethodNotAllowed { allow } => {
                 let allow_header = format_allow_header(&allow);
                 (
@@ -455,10 +470,10 @@ async fn read_request_bytes(
         if let Some(total_expected) = expected_len
             && buffered.len() >= total_expected
         {
-                let mut tail = buffered.split_off(total_expected);
-                let request = std::mem::take(buffered);
-                std::mem::swap(buffered, &mut tail);
-                return Ok(request);
+            let mut tail = buffered.split_off(total_expected);
+            let request = std::mem::take(buffered);
+            std::mem::swap(buffered, &mut tail);
+            return Ok(request);
         }
 
         let read = future::or(
@@ -637,7 +652,9 @@ mod tests {
         let mut expected_len: Option<usize> = None;
 
         loop {
-            if let Some(expected_len) = expected_len && response.len() >= expected_len {
+            if let Some(expected_len) = expected_len
+                && response.len() >= expected_len
+            {
                 break;
             }
 
@@ -885,6 +902,33 @@ mod tests {
                 Some("5")
             );
             assert!(body_bytes(&response).is_empty());
+
+            shutdown_tx.send(()).await.expect("shutdown signal");
+            assert!(task.await.is_ok());
+        });
+    }
+
+    #[test]
+    fn integration_attaches_matched_route_to_request() {
+        smol::block_on(async {
+            async fn route(request: Request) -> Response {
+                Response::text(request.matched_route().unwrap_or("missing"))
+            }
+
+            let (address, shutdown_tx, task) =
+                start_test_server(App::new().get("/users/:id", route))
+                    .await
+                    .expect("server should start");
+
+            let response = send_single_request(
+                &address,
+                "GET /users/42 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("request should succeed");
+
+            assert_eq!(status_code(&response), 200);
+            assert_eq!(body_bytes(&response), b"/users/:id");
 
             shutdown_tx.send(()).await.expect("shutdown signal");
             assert!(task.await.is_ok());

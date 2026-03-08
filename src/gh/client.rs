@@ -83,6 +83,7 @@ impl GhClient {
         self.cache.db_path()
     }
 
+    #[tracing::instrument(name = "gh.run_raw_command", skip(self, args), fields(class = class.as_str()))]
     pub async fn run_raw_command(
         &self,
         class: CommandClass,
@@ -99,6 +100,11 @@ impl GhClient {
         .await
     }
 
+    #[tracing::instrument(
+        name = "gh.run_raw_command_with_context",
+        skip(self, args),
+        fields(class = class.as_str(), repo = repo_hint.as_deref().unwrap_or("-"), pr = pr_number.unwrap_or(0))
+    )]
     async fn run_raw_command_with_context(
         &self,
         class: CommandClass,
@@ -117,6 +123,11 @@ impl GhClient {
         .await
     }
 
+    #[tracing::instrument(
+        name = "gh.run_raw_command_with_stdin",
+        skip(self, args, stdin),
+        fields(class = class.as_str(), repo = repo_hint.as_deref().unwrap_or("-"), pr = pr_number.unwrap_or(0))
+    )]
     async fn run_raw_command_with_stdin(
         &self,
         class: CommandClass,
@@ -136,11 +147,13 @@ impl GhClient {
         .await
     }
 
+    #[tracing::instrument(name = "gh.run_command", skip(self, command), fields(class = command.class.as_str()))]
     async fn run_command(&self, command: GhCommand) -> GhResult<CommandResult> {
         let runner = Arc::clone(&self.runner);
         smol::unblock(move || runner.run(command)).await
     }
 
+    #[tracing::instrument(name = "gh.preflight", skip(self))]
     pub async fn preflight(&self) -> GhResult<PreflightDiagnostics> {
         self.cached_or_refresh("preflight|diagnostics", CACHE_PREFLIGHT, || async {
             let version = self
@@ -192,6 +205,7 @@ impl GhClient {
         .await
     }
 
+    #[tracing::instrument(name = "gh.resolve_repo", skip(self), fields(repo = explicit_repo.unwrap_or("context")))]
     pub async fn resolve_repo(&self, explicit_repo: Option<&str>) -> GhResult<RepoContext> {
         let (repo_arg, cache_key) = if let Some(repo) = explicit_repo {
             let repo = validate_repo_identifier(repo)?;
@@ -222,12 +236,14 @@ impl GhClient {
         .await
     }
 
+    #[tracing::instrument(name = "gh.cached_accessible_repositories", skip(self))]
     pub async fn cached_accessible_repositories(
         &self,
     ) -> GhResult<Option<CachedValue<Vec<String>>>> {
         self.cache_get("repo|accessible").await
     }
 
+    #[tracing::instrument(name = "gh.refresh_accessible_repositories", skip(self))]
     pub async fn refresh_accessible_repositories(&self) -> GhResult<Vec<String>> {
         let mut owners = vec![String::new()];
         if let Ok(orgs_result) = self
@@ -284,6 +300,7 @@ impl GhClient {
         Ok(repos)
     }
 
+    #[tracing::instrument(name = "gh.cached_search_pull_requests", skip(self, query), fields(limit = query.limit, repo_count = query.repos.len()))]
     pub async fn cached_search_pull_requests(
         &self,
         query: &SearchArgs,
@@ -291,6 +308,7 @@ impl GhClient {
         self.cache_get(&search_cache_key(query)).await
     }
 
+    #[tracing::instrument(name = "gh.refresh_search_pull_requests", skip(self, query), fields(limit = query.limit, repo_count = query.repos.len()))]
     pub async fn refresh_search_pull_requests(
         &self,
         query: &SearchArgs,
@@ -311,7 +329,9 @@ impl GhClient {
         ];
 
         let mut repos = query.repos.clone();
-        if repos.is_empty() && let Some(repo) = &query.repo {
+        if repos.is_empty()
+            && let Some(repo) = &query.repo
+        {
             repos.push(repo.clone());
         }
         if repos.is_empty() {
@@ -374,6 +394,7 @@ impl GhClient {
         self.refresh_search_pull_requests(query).await
     }
 
+    #[tracing::instrument(name = "gh.cached_pull_request_conversation", skip(self), fields(repo = repo, pr = number))]
     pub async fn cached_pull_request_conversation(
         &self,
         repo: &str,
@@ -385,6 +406,7 @@ impl GhClient {
             .await
     }
 
+    #[tracing::instrument(name = "gh.refresh_pull_request_conversation", skip(self), fields(repo = repo, pr = number))]
     pub async fn refresh_pull_request_conversation(
         &self,
         repo: &str,
@@ -417,6 +439,7 @@ impl GhClient {
         Ok(conversation)
     }
 
+    #[tracing::instrument(name = "gh.cached_pull_request_files", skip(self), fields(repo = repo, pr = number))]
     pub async fn cached_pull_request_files(
         &self,
         repo: &str,
@@ -427,6 +450,7 @@ impl GhClient {
         self.cache_get(&format!("pr|files|{repo}|{number}")).await
     }
 
+    #[tracing::instrument(name = "gh.refresh_pull_request_files", skip(self), fields(repo = repo, pr = number))]
     pub async fn refresh_pull_request_files(
         &self,
         repo: &str,
@@ -458,6 +482,7 @@ impl GhClient {
         Ok(files)
     }
 
+    #[tracing::instrument(name = "gh.cache_get", skip(self), fields(cache_key = key))]
     async fn cache_get<T: DeserializeOwned>(&self, key: &str) -> GhResult<Option<CachedValue<T>>> {
         let cache_key = self.cache_key(key);
         let Some(entry) = self
@@ -483,6 +508,7 @@ impl GhClient {
         }))
     }
 
+    #[tracing::instrument(name = "gh.cache_set", skip(self, value), fields(cache_key = key))]
     async fn cache_set<T: Serialize>(
         &self,
         key: &str,
@@ -504,6 +530,7 @@ impl GhClient {
             .map_err(|err| GhError::Internal(format!("cache write failed for {key}: {err}")))
     }
 
+    #[tracing::instrument(name = "gh.cached_or_refresh", skip(self, refresh), fields(cache_key = key))]
     async fn cached_or_refresh<T, F, Fut>(
         &self,
         key: &str,

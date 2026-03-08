@@ -19,10 +19,15 @@ struct MethodTree {
 
 #[derive(Default)]
 struct Node {
-    handler: Option<Handler>,
+    handler: Option<TerminalRoute>,
     static_children: HashMap<String, Node>,
     param_child: Option<ParamNode>,
     catch_all_child: Option<CatchAllNode>,
+}
+
+struct TerminalRoute {
+    handler: Handler,
+    pattern: String,
 }
 
 struct ParamNode {
@@ -32,7 +37,7 @@ struct ParamNode {
 
 struct CatchAllNode {
     name: String,
-    handler: Handler,
+    route: TerminalRoute,
 }
 
 #[derive(Clone)]
@@ -40,6 +45,7 @@ pub enum ResolveResult {
     Found {
         handler: Handler,
         params: HashMap<String, String>,
+        matched_route: String,
     },
     MethodNotAllowed {
         allow: Vec<String>,
@@ -176,14 +182,20 @@ impl MethodTree {
 
                     current.catch_all_child = Some(CatchAllNode {
                         name: name.clone(),
-                        handler: Arc::clone(&handler),
+                        route: TerminalRoute {
+                            handler: Arc::clone(&handler),
+                            pattern: pattern.original.clone(),
+                        },
                     });
                     return Ok(());
                 }
             }
         }
 
-        current.handler = Some(handler);
+        current.handler = Some(TerminalRoute {
+            handler,
+            pattern: pattern.original.clone(),
+        });
         Ok(())
     }
 
@@ -204,18 +216,20 @@ fn resolve_node(
     params: &mut HashMap<String, String>,
 ) -> Option<ResolveResult> {
     if index == parts.len() {
-        if let Some(handler) = &node.handler {
+        if let Some(route) = &node.handler {
             return Some(ResolveResult::Found {
-                handler: Arc::clone(handler),
+                handler: Arc::clone(&route.handler),
                 params: params.clone(),
+                matched_route: route.pattern.clone(),
             });
         }
 
         if let Some(catch_all) = &node.catch_all_child {
             params.insert(catch_all.name.clone(), String::new());
             return Some(ResolveResult::Found {
-                handler: Arc::clone(&catch_all.handler),
+                handler: Arc::clone(&catch_all.route.handler),
                 params: params.clone(),
+                matched_route: catch_all.route.pattern.clone(),
             });
         }
 
@@ -241,8 +255,9 @@ fn resolve_node(
     if let Some(catch_all) = &node.catch_all_child {
         params.insert(catch_all.name.clone(), parts[index..].join("/"));
         return Some(ResolveResult::Found {
-            handler: Arc::clone(&catch_all.handler),
+            handler: Arc::clone(&catch_all.route.handler),
             params: params.clone(),
+            matched_route: catch_all.route.pattern.clone(),
         });
     }
 
@@ -384,6 +399,11 @@ mod tests {
         assert!(matches!(
             router.resolve("GET", "/users/a/b/c"),
             ResolveResult::Found { params, .. } if params.get("path").map(String::as_str) == Some("a/b/c")
+        ));
+
+        assert!(matches!(
+            router.resolve("GET", "/users/42"),
+            ResolveResult::Found { matched_route, .. } if matched_route == "/users/:id"
         ));
     }
 

@@ -7,6 +7,14 @@ use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::{PrDetailTemplate, detail_page_model};
 
+#[tracing::instrument(
+    name = "handler.pull_request_detail",
+    skip(request),
+    fields(
+        http.request.method = %request.method,
+        http.route = request.matched_route().unwrap_or(request.path.as_str())
+    )
+)]
 pub async fn pull_request_detail(request: Request) -> Response {
     let flash = flash_from_query(&request);
     let state = app_state_snapshot();
@@ -35,19 +43,34 @@ pub async fn pull_request_detail(request: Request) -> Response {
     let load_mode = PageLoadMode::from_request(&request);
 
     let conversation = if load_mode.bypass_cache() {
-        match state.gh.refresh_pull_request_conversation(&repo_name, number).await {
+        match state
+            .gh
+            .refresh_pull_request_conversation(&repo_name, number)
+            .await
+        {
             Ok(value) => crate::views::types::Loadable::ready(value, false),
             Err(err) => return render_gh_error(err),
         }
     } else {
-        match state.gh.cached_pull_request_conversation(&repo_name, number).await {
+        match state
+            .gh
+            .cached_pull_request_conversation(&repo_name, number)
+            .await
+        {
             Ok(value) => loadable_from_cached(value),
             Err(err) => return render_gh_error(err),
         }
     };
     let needs_refresh = !load_mode.bypass_cache() && conversation.needs_refresh();
 
-    let model = detail_page_model(&repo_context, number, conversation, needs_refresh, flash, &request);
+    let model = detail_page_model(
+        &repo_context,
+        number,
+        conversation,
+        needs_refresh,
+        flash,
+        &request,
+    );
     let template = PrDetailTemplate { model };
     render_template(200, "OK", &template)
 }
