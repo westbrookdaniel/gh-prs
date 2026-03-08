@@ -30,7 +30,9 @@ docker run --rm --name jaeger \
   -p 16686:16686 \
   -p 4317:4317 \
   -p 4318:4318 \
-  jaegertracing/all-in-one:1.76.0
+  -p 5778:5778 \
+  -p 9411:9411 \
+  cr.jaegertracing.io/jaegertracing/jaeger:2.15.0
 ```
 
 Start the app with OTLP export pointed at Jaeger:
@@ -44,6 +46,7 @@ cargo run -- --port 3000
 Then:
 
 - Open `http://127.0.0.1:16686`
+- Open `http://localhost:16686` if that works better on your machine
 - Search for service `gh-prs`
 - Hit routes like `http://127.0.0.1:3000/prs` or `http://127.0.0.1:3000/health`
 - Inspect route-based traces such as `GET /prs` and `GET /repos/:owner/:repo/prs/:number`
@@ -52,6 +55,8 @@ If traces do not appear:
 
 - confirm the Jaeger container is still running
 - confirm the app was started with `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`
+- make at least one fresh request after both Jaeger and the app are running
+- in Jaeger, select service `gh-prs`, set a recent lookback, and click `Find Traces`
 - reload the app a few times to generate fresh requests
 
 ## Cache and Refresh
