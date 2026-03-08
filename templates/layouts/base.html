@@ -40,7 +40,10 @@
     <header class="app-frame">
       <div class="app-frame-inner flex items-center justify-between">
         <a href="/prs" class="app-mark">gh-prs</a>
-        <cp-theme-toggle></cp-theme-toggle>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Light mode">
+          <img src="/assets/icons/sun.svg" alt="" aria-hidden="true" />
+          <span class="sr-only">Light mode</span>
+        </button>
       </div>
     </header>
     {% block content %}{% endblock %}

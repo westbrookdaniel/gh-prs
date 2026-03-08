@@ -17,7 +17,7 @@
         <div class="pr-item-main">
           <div class="pr-item-headline">
             <p class="meta repo-meta">{{ row.repository_name_with_owner }}</p>
-            <cp-badge tone="{{ model.state_tone(row) }}" title="{{ model.state_tooltip(row) }}">{{ model.state_label(row) }}</cp-badge>
+            <span class="badge {{ model.state_tone(row) }}" title="{{ model.state_tooltip(row) }}">{{ model.state_label(row) }}</span>
           </div>
           <h3 class="pr-title"><a href="{{ model.detail_path(row) }}">#{{ row.number }} · {{ row.title }}</a></h3>
           <p class="meta pr-item-meta">author: <strong>{{ row.author }}</strong> · comments: <strong>{{ row.comment_count }}</strong> · updated: {{ model.formatted_updated_at(row) }}</p>

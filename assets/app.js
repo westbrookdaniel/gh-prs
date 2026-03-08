@@ -1,6 +1,31 @@
 let pendingNavigationController = null;
 let pendingRefreshController = null;
 
+const STORAGE_KEYS = {
+  theme: "ghprs.theme",
+  filters: "ghprs.prFilters.v3",
+};
+
+const FILTER_FIELDS = ["status", "title", "author", "sort", "order"];
+
+const BATCH_NAV_COOLDOWN_MS = 450;
+let lastNavigationAt = 0;
+
+function guardedNavigate(url) {
+  const now = Date.now();
+  if (now - lastNavigationAt < BATCH_NAV_COOLDOWN_MS) {
+    return;
+  }
+  lastNavigationAt = now;
+
+  if (typeof window.__ghprsNavigate === "function") {
+    window.__ghprsNavigate(url);
+    return;
+  }
+
+  window.location.assign(url);
+}
+
 function isPrimaryNavigation(event) {
   return (
     event.button === 0 &&
@@ -108,10 +133,261 @@ function setRefreshStatus(main, message) {
     return;
   }
 
-  const alert = document.createElement("cp-alert");
-  alert.setAttribute("tone", "error");
+  const alert = document.createElement("div");
+  alert.className = "alert alert--error";
+  alert.setAttribute("role", "status");
   alert.textContent = message;
   status.replaceChildren(alert);
+}
+
+function normalizeTheme(value) {
+  return value === "dark" ? "dark" : "light";
+}
+
+function preferredTheme() {
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEYS.theme);
+    if (saved === "light" || saved === "dark") {
+      return saved;
+    }
+  } catch {
+    return "light";
+  }
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function updateThemeToggleLabel(button) {
+  const current = normalizeTheme(document.documentElement.dataset.theme || "light");
+  const isDark = current === "dark";
+  button.innerHTML = isDark
+    ? '<img src="/assets/icons/moon.svg" alt="" aria-hidden="true" /><span class="sr-only">Dark mode</span>'
+    : '<img src="/assets/icons/sun.svg" alt="" aria-hidden="true" /><span class="sr-only">Light mode</span>';
+  button.setAttribute("aria-label", isDark ? "Dark mode" : "Light mode");
+}
+
+function applyTheme(theme) {
+  const normalized = normalizeTheme(theme);
+  document.documentElement.dataset.theme = normalized;
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.theme, normalized);
+  } catch {
+    // ignore
+  }
+
+  const button = document.getElementById("theme-toggle");
+  if (button instanceof HTMLButtonElement) {
+    updateThemeToggleLabel(button);
+  }
+}
+
+function initializeThemeToggle() {
+  const button = document.getElementById("theme-toggle");
+  if (!(button instanceof HTMLButtonElement) || button.dataset.bound === "true") {
+    return;
+  }
+
+  button.dataset.bound = "true";
+  button.addEventListener("click", () => {
+    const current = normalizeTheme(document.documentElement.dataset.theme || preferredTheme());
+    applyTheme(current === "dark" ? "light" : "dark");
+  });
+  updateThemeToggleLabel(button);
+}
+
+function getPrFilterForm() {
+  const form = document.querySelector("[data-pr-filter-form]");
+  return form instanceof HTMLFormElement ? form : null;
+}
+
+function hasQueryState() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.getAll("repo").length > 0) {
+    return true;
+  }
+
+  return FILTER_FIELDS.some((name) => {
+    const value = params.get(name);
+    return value !== null && value !== "";
+  });
+}
+
+function readCurrentFilterState(form) {
+  const state = {};
+  for (const field of FILTER_FIELDS) {
+    const input = form.elements.namedItem(field);
+    if (!(input instanceof HTMLInputElement || input instanceof HTMLSelectElement)) {
+      continue;
+    }
+    const value = input.value.trim();
+    if (value !== "") {
+      state[field] = value;
+    }
+  }
+
+  const repoSelect = form.querySelector("[data-pr-filter-repos]");
+  if (repoSelect instanceof HTMLSelectElement) {
+    const repos = Array.from(repoSelect.selectedOptions)
+      .map((option) => option.value)
+      .filter(Boolean);
+    if (repos.length > 0) {
+      state.repo = repos;
+    }
+  }
+
+  return state;
+}
+
+function readSavedFilters() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEYS.filters);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedFilters(state) {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.filters, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+function setFormValues(form, state) {
+  for (const field of FILTER_FIELDS) {
+    if (!(field in state)) {
+      continue;
+    }
+    const input = form.elements.namedItem(field);
+    if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
+      input.value = String(state[field]);
+    }
+  }
+
+  const repoSelect = form.querySelector("[data-pr-filter-repos]");
+  if (repoSelect instanceof HTMLSelectElement && Array.isArray(state.repo)) {
+    const selected = new Set(state.repo.filter((value) => typeof value === "string"));
+    Array.from(repoSelect.options).forEach((option) => {
+      option.selected = selected.has(option.value);
+    });
+  }
+}
+
+function queryStringFromState(state) {
+  const params = new URLSearchParams();
+  for (const field of FILTER_FIELDS) {
+    const value = state[field];
+    if (typeof value === "string" && value !== "") {
+      params.set(field, value);
+    }
+  }
+
+  if (Array.isArray(state.repo)) {
+    state.repo.forEach((repo) => {
+      if (typeof repo === "string" && repo.trim() !== "") {
+        params.append("repo", repo);
+      }
+    });
+  }
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function initializePrFilters() {
+  const form = getPrFilterForm();
+  if (!(form instanceof HTMLFormElement) || form.dataset.bound === "true") {
+    return;
+  }
+
+  form.dataset.bound = "true";
+
+  if (hasQueryState()) {
+    writeSavedFilters(readCurrentFilterState(form));
+  } else {
+    const saved = readSavedFilters();
+    if (saved) {
+      setFormValues(form, saved);
+      const query = queryStringFromState(saved);
+      const target = `/prs${query}`;
+      if (target !== `${window.location.pathname}${window.location.search}`) {
+        guardedNavigate(target);
+      }
+    }
+  }
+
+  form.addEventListener("submit", () => {
+    writeSavedFilters(readCurrentFilterState(form));
+  });
+
+  const resetControl = document.getElementById("pr-filter-reset");
+  if (resetControl instanceof HTMLElement) {
+    resetControl.addEventListener("click", (event) => {
+      event.preventDefault();
+      try {
+        window.localStorage.removeItem(STORAGE_KEYS.filters);
+      } catch {
+        // ignore
+      }
+      guardedNavigate("/prs");
+    });
+  }
+}
+
+function initializeAutoSubmitControls() {
+  document.querySelectorAll("select[data-auto-submit='true']").forEach((control) => {
+    if (!(control instanceof HTMLSelectElement) || control.dataset.bound === "true") {
+      return;
+    }
+
+    control.dataset.bound = "true";
+    control.addEventListener("change", () => {
+      const form = control.closest("form");
+      if (form instanceof HTMLFormElement) {
+        form.requestSubmit();
+      }
+    });
+  });
+}
+
+function initializeDiffTreeButtons() {
+  const tree = document.getElementById("diff-file-tree");
+  if (!(tree instanceof HTMLElement) || tree.dataset.bound === "true") {
+    return;
+  }
+
+  tree.dataset.bound = "true";
+  tree.querySelectorAll(".file-leaf-link").forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    button.addEventListener("click", () => {
+      const targetId = button.getAttribute("data-target");
+      if (!targetId) {
+        return;
+      }
+      const section = document.getElementById(targetId);
+      if (section) {
+        section.scrollIntoView({ behavior: "auto", block: "start" });
+      }
+    });
+  });
+}
+
+function initializePageUi() {
+  initializeThemeToggle();
+  initializePrFilters();
+  initializeAutoSubmitControls();
+  initializeDiffTreeButtons();
 }
 
 function applyNavigationDocument(parsed, url, options) {
@@ -144,6 +420,7 @@ function applyNavigationDocument(parsed, url, options) {
   }
 
   initializePageRefresh();
+  initializePageUi();
 
   return true;
 }
@@ -300,8 +577,6 @@ window.__ghprsNavigate = (url, options = {}) => {
   void navigate(url, options);
 };
 
-void import("/assets/components/index.js");
-
 document.addEventListener("click", (event) => {
   if (!isPrimaryNavigation(event)) {
     return;
@@ -370,4 +645,5 @@ document.addEventListener(
   true,
 );
 
+initializePageUi();
 initializePageRefresh();

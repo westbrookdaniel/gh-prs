@@ -1,18 +1,18 @@
 {% if let Some(conversation) = model.conversation.value %}
-<cp-card class="page-header detail-hero">
+<section class="card page-header detail-hero">
   <div class="detail-hero-top">
     <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
     <details class="header-menu">
       <summary aria-label="More actions">...</summary>
       <form method="post" action="{{ model.state_post_path }}" class="header-menu-panel">
         {% if model.is_open(conversation.detail) %}
-        <cp-button type="submit" name="state" value="close" variant="danger">Close PR</cp-button>
+        <button type="submit" name="state" value="close" class="button button--danger">Close PR</button>
         {% endif %}
         {% if model.is_closed(conversation.detail) %}
-        <cp-button type="submit" name="state" value="reopen" variant="secondary">Reopen PR</cp-button>
+        <button type="submit" name="state" value="reopen" class="button button--secondary">Reopen PR</button>
         {% endif %}
         {% if conversation.detail.is_draft %}
-        <cp-button type="submit" name="state" value="ready" variant="secondary">Mark Ready</cp-button>
+        <button type="submit" name="state" value="ready" class="button button--secondary">Mark Ready</button>
         {% endif %}
       </form>
     </details>
@@ -20,10 +20,10 @@
 
   <h1 class="page-title">PR #{{ conversation.detail.number }} · {{ conversation.detail.title }}</h1>
   <div class="hero-badges">
-    <cp-badge tone="{{ model.state_tone(conversation.detail) }}" title="{{ model.state_tooltip(conversation.detail) }}">{{ model.state_label(conversation.detail) }}</cp-badge>
-    {% if conversation.detail.is_draft %}<cp-badge tone="state-draft" title="{{ model.draft_tooltip() }}">DRAFT</cp-badge>{% endif %}
-    <cp-badge tone="{{ model.review_decision_tone(conversation.detail) }}" title="{{ model.review_decision_tooltip(conversation.detail) }}">{{ model.review_decision(conversation.detail) }}</cp-badge>
-    <cp-badge tone="{{ model.merge_state_tone(conversation.detail) }}" title="{{ model.merge_state_tooltip(conversation.detail) }}">{{ conversation.detail.merge_state_status }}</cp-badge>
+    <span class="badge {{ model.state_tone(conversation.detail) }}" title="{{ model.state_tooltip(conversation.detail) }}">{{ model.state_label(conversation.detail) }}</span>
+    {% if conversation.detail.is_draft %}<span class="badge state-draft" title="{{ model.draft_tooltip() }}">DRAFT</span>{% endif %}
+    <span class="badge {{ model.review_decision_tone(conversation.detail) }}" title="{{ model.review_decision_tooltip(conversation.detail) }}">{{ model.review_decision(conversation.detail) }}</span>
+    <span class="badge {{ model.merge_state_tone(conversation.detail) }}" title="{{ model.merge_state_tooltip(conversation.detail) }}">{{ conversation.detail.merge_state_status }}</span>
   </div>
   <p class="meta">repository: <a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a> · <a href="{{ conversation.detail.url }}">Open on GitHub</a></p>
   <p class="meta">author: <strong>{{ conversation.detail.author }}</strong> · created: {{ model.formatted_created_at(conversation.detail) }} · updated: {{ model.formatted_updated_at(conversation.detail) }}</p>
@@ -31,9 +31,9 @@
   {% if let Some(explainer) = model.merge_state_explainer(conversation.detail) %}
   <p class="meta">{{ explainer }}</p>
   {% endif %}
-</cp-card>
+</section>
 {% else %}
-<cp-card class="page-header detail-hero">
+<section class="card page-header detail-hero">
   <div class="detail-hero-top" aria-hidden="true">
     <p class="skeleton skeleton-line skeleton-line-short"></p>
     <p class="skeleton skeleton-pill"></p>
@@ -41,20 +41,20 @@
   <p class="skeleton skeleton-line skeleton-line-lg" aria-hidden="true"></p>
   <p class="skeleton skeleton-line" aria-hidden="true"></p>
   <p class="skeleton skeleton-line skeleton-line-short" aria-hidden="true"></p>
-</cp-card>
+</section>
 {% endif %}
 
 {% if let Some(flash) = model.flash %}
-<cp-alert tone="{{ flash.kind }}">{{ flash.message }}</cp-alert>
+<div class="alert alert--{{ flash.kind }}" role="status">{{ flash.message }}</div>
 {% endif %}
 
-<cp-card class="tabs-shell">
+<section class="card tabs-shell">
   <nav class="tab-strip" aria-label="Pull request sections">
     {% for tab in model.tabs %}
     <a class="pill-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
     {% endfor %}
   </nav>
-</cp-card>
+</section>
 
 <section class="pr-detail-layout">
   <section class="pr-main-flow">
@@ -97,7 +97,7 @@
         <form method="post" action="{{ model.comment_post_path }}" class="stack">
           <label for="comment-body">Comment body</label>
           <textarea id="comment-body" name="body" rows="6" required></textarea>
-          <cp-button type="submit" variant="secondary">Post Comment</cp-button>
+          <button type="submit" class="button button--secondary">Post Comment</button>
         </form>
       </article>
 
@@ -106,9 +106,9 @@
           <label for="review-body">Review body</label>
           <textarea id="review-body" name="body" rows="6" required></textarea>
           <div class="review-actions">
-            <cp-button type="submit" name="event" value="approve" variant="approve">Approve</cp-button>
-            <cp-button type="submit" name="event" value="comment" variant="secondary">Comment</cp-button>
-            <cp-button type="submit" name="event" value="request_changes" variant="warning">Request changes</cp-button>
+            <button type="submit" name="event" value="approve" class="button button--approve">Approve</button>
+            <button type="submit" name="event" value="comment" class="button button--secondary">Comment</button>
+            <button type="submit" name="event" value="request_changes" class="button button--warning">Request changes</button>
           </div>
         </form>
       </article>
@@ -133,15 +133,14 @@
       {% for reviewer in model.reviewer_statuses %}
       <article class="reviewer-item">
         <p class="reviewer-name"><strong>{{ reviewer.reviewer }}</strong></p>
-        <p class="meta"><cp-badge tone="{{ reviewer.tone }}" title="{{ reviewer.state_tooltip }}">{{ reviewer.state }}</cp-badge> · {{ reviewer.submitted_at }}</p>
+        <p class="meta"><span class="badge {{ reviewer.tone }}" title="{{ reviewer.state_tooltip }}">{{ reviewer.state }}</span> · {{ reviewer.submitted_at }}</p>
       </article>
       {% endfor %}
       {% endif %}
 
       <form id="reviewers-form" method="post" action="{{ model.reviewers_post_path }}" class="stack inline-form slim-form">
         <label for="reviewers-input">Add reviewers</label>
-        <cp-combobox id="reviewers-input" input-name="reviewers" placeholder="Search reviewers..." empty-label="Select reviewers" no-results-label="No reviewers found" source-selector="#reviewer-options-source" auto-submit="true" form-id="reviewers-form"></cp-combobox>
-        <select id="reviewer-options-source" hidden multiple>
+        <select id="reviewers-input" name="reviewers" class="multiselect-control" multiple size="6" data-auto-submit="true">
           {% for reviewer in model.reviewer_options %}
           <option value="{{ reviewer }}">{{ reviewer }}</option>
           {% endfor %}
@@ -151,7 +150,7 @@
 
     <section class="checks-panel merge-panel">
       {% if let Some(conversation) = model.conversation.value %}
-      <p class="meta checks-headline"><img src="{{ model.checks.headline_icon_src }}" alt="" aria-hidden="true" class="check-icon {{ model.checks.headline_tone }}" /> <cp-badge tone="{{ model.checks.headline_tone }}" title="{{ model.checks.headline_tooltip }}">{{ model.checks.headline }}</cp-badge></p>
+      <p class="meta checks-headline"><img src="{{ model.checks.headline_icon_src }}" alt="" aria-hidden="true" class="check-icon {{ model.checks.headline_tone }}" /> <span class="badge {{ model.checks.headline_tone }}" title="{{ model.checks.headline_tooltip }}">{{ model.checks.headline }}</span></p>
       <div class="checks-progress" role="img" aria-label="Status checks progress">
         <span class="checks-segment checks-pass" style="width: {{ model.checks.successful_pct }}%"></span>
         <span class="checks-segment checks-fail" style="width: {{ model.checks.failed_pct }}%"></span>
@@ -163,21 +162,20 @@
         <li>
           <img src="{{ job.icon_src }}" alt="" aria-hidden="true" class="check-icon {{ job.tone }}" title="{{ job.tooltip }}" />
           <span class="truncate-middle" title="{{ job.name }}">{{ job.name }}</span>
-          <cp-badge tone="{{ job.tone }}" title="{{ job.tooltip }}">{{ job.state }}</cp-badge>
+          <span class="badge {{ job.tone }}" title="{{ job.tooltip }}">{{ job.state }}</span>
         </li>
         {% endfor %}
       </ul>
 
       <form method="post" action="{{ model.merge_post_path }}" class="stack inline-form">
         <label for="merge-method">Merge</label>
-        <cp-combobox id="merge-method-combo" source-selector="#merge-method-source" input-name="method" placeholder="Merge method" empty-label="Merge method" class="single"></cp-combobox>
-        <select id="merge-method-source" hidden>
+        <select id="merge-method" name="method" class="select-control">
           <option value="merge" selected>Merge commit</option>
           <option value="squash">Squash and merge</option>
           <option value="rebase">Rebase and merge</option>
         </select>
         <label class="checkbox-row"><input type="checkbox" name="delete_branch" /> Delete branch</label>
-        <cp-button type="submit" variant="{{ model.merge_button_tone(conversation.detail) }}" {% if model.merge_button_disabled(conversation.detail) %}disabled{% endif %}>{{ model.merge_button_label(conversation.detail) }}</cp-button>
+        <button type="submit" class="button button--{{ model.merge_button_tone(conversation.detail) }}" {% if model.merge_button_disabled(conversation.detail) %}disabled{% endif %}>{{ model.merge_button_label(conversation.detail) }}</button>
         <p class="meta">{{ model.merge_button_reason(conversation.detail) }}</p>
       </form>
       {% else %}

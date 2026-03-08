@@ -1,23 +1,21 @@
 {% if let Some(flash) = model.flash %}
-<cp-alert tone="{{ flash.kind }}">{{ flash.message }}</cp-alert>
+<div class="alert alert--{{ flash.kind }}" role="status">{{ flash.message }}</div>
 {% endif %}
 
-<cp-card class="list-pane full-width-pane">
-  <cp-pr-filter-state form-id="pr-filter-form" reset-id="pr-filter-reset" combo-id="repo-combobox"></cp-pr-filter-state>
+<section class="card list-pane full-width-pane">
 
   <header class="section-head list-pane-head">
-    <form id="pr-filter-form" method="get" action="/prs" class="toolbar-form">
+    <form id="pr-filter-form" method="get" action="/prs" class="toolbar-form" data-pr-filter-form>
       <nav class="tab-strip tab-strip-inline" aria-label="Pull request states">
         {% for tab in model.tabs %}
         <a class="pill-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
         {% endfor %}
       </nav>
 
-      <cp-combobox id="repo-combobox" source-selector="#repo-options-source" input-name="repo" placeholder="Search repos..." empty-label="All repos" no-results-label="No repos found" class="toolbar-combo"></cp-combobox>
-      <select id="repo-options-source" class="repo-option-source" hidden multiple>
+      <select id="repo-filter" class="toolbar-input toolbar-combo multiselect-control" name="repo" multiple size="4" aria-label="Filter by repository" data-pr-filter-repos>
         {% if let Some(repo_options) = model.repo_options.value %}
         {% for option in repo_options %}
-        <option value="{{ option }}" {% if model.is_repo_selected(option) %}selected{% endif %}></option>
+        <option value="{{ option }}" {% if model.is_repo_selected(option) %}selected{% endif %}>{{ option }}</option>
         {% endfor %}
         {% endif %}
       </select>
@@ -25,8 +23,7 @@
       <input id="filter-title" class="toolbar-input" type="text" name="title" value="{{ model.title_value() }}" placeholder="Search title" />
       <input id="filter-author" class="toolbar-input" type="text" name="author" value="{{ model.author_value() }}" placeholder="Search author" />
 
-      <cp-combobox id="status-combobox" source-selector="#status-options-source" input-name="status" placeholder="Select status" empty-label="Status" no-results-label="No statuses found" class="toolbar-combo single"></cp-combobox>
-      <select id="status-options-source" hidden>
+      <select id="status-filter" class="toolbar-input toolbar-combo select-control" name="status" aria-label="Filter by status">
         <option value="all" {% if model.status_value() == "all" %}selected{% endif %}>All</option>
         <option value="open" {% if model.status_value() == "open" %}selected{% endif %}>Open</option>
         <option value="closed" {% if model.status_value() == "closed" %}selected{% endif %}>Closed</option>
@@ -37,8 +34,8 @@
       <input type="hidden" name="order" value="{{ model.order_value() }}" />
 
       <div class="toolbar-actions">
-        <cp-button type="submit" variant="default">Apply</cp-button>
-        <cp-button id="pr-filter-reset" href="/prs" variant="ghost">Reset</cp-button>
+        <button type="submit" class="button button--default">Apply</button>
+        <a id="pr-filter-reset" href="/prs" class="button button--ghost">Reset</a>
       </div>
     </form>
 
@@ -61,4 +58,4 @@
   <section id="pr-list-results">
     {% include "pages/fragments/pr_list_results.html" %}
   </section>
-</cp-card>
+</section>

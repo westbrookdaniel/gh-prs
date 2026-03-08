@@ -1,38 +1,38 @@
 {% if let Some(detail) = model.detail.value %}
-<cp-card class="page-header detail-hero">
+<section class="card page-header detail-hero">
   <div class="detail-hero-top">
     <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
     <div class="hero-badges">
-      <cp-badge tone="{{ model.state_tone(detail) }}" title="{{ model.state_tooltip(detail) }}">{{ model.state_label(detail) }}</cp-badge>
-      {% if detail.is_draft %}<cp-badge tone="state-draft" title="{{ model.draft_tooltip() }}">DRAFT</cp-badge>{% endif %}
-      <cp-badge tone="{{ model.merge_state_tone(detail) }}" title="{{ model.merge_state_tooltip(detail) }}">{{ detail.merge_state_status }}</cp-badge>
+      <span class="badge {{ model.state_tone(detail) }}" title="{{ model.state_tooltip(detail) }}">{{ model.state_label(detail) }}</span>
+      {% if detail.is_draft %}<span class="badge state-draft" title="{{ model.draft_tooltip() }}">DRAFT</span>{% endif %}
+      <span class="badge {{ model.merge_state_tone(detail) }}" title="{{ model.merge_state_tooltip(detail) }}">{{ detail.merge_state_status }}</span>
     </div>
   </div>
   <h1 class="page-title">PR #{{ detail.number }} · {{ detail.title }}</h1>
   <p class="meta">repository: <a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a> · files: <strong>{{ detail.file_count }}</strong></p>
-</cp-card>
+</section>
 {% else %}
-<cp-card class="page-header detail-hero">
+<section class="card page-header detail-hero">
   <div class="detail-hero-top" aria-hidden="true">
     <p class="skeleton skeleton-line skeleton-line-short"></p>
     <p class="skeleton skeleton-pill"></p>
   </div>
   <p class="skeleton skeleton-line skeleton-line-lg" aria-hidden="true"></p>
   <p class="skeleton skeleton-line" aria-hidden="true"></p>
-</cp-card>
+</section>
 {% endif %}
 
 {% if let Some(flash) = model.flash %}
-<cp-alert tone="{{ flash.kind }}">{{ flash.message }}</cp-alert>
+<div class="alert alert--{{ flash.kind }}" role="status">{{ flash.message }}</div>
 {% endif %}
 
-<cp-card class="tabs-shell">
+<section class="card tabs-shell">
   <nav class="tab-strip" aria-label="Pull request sections">
     {% for tab in model.tabs %}
     <a class="pill-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
     {% endfor %}
   </nav>
-</cp-card>
+</section>
 
 <section class="changes-layout">
   <aside class="diff-tree" id="diff-file-tree">
@@ -84,7 +84,7 @@
       <details class="diff-file-accordion" {% if !file.is_collapsed %}open{% endif %}>
         <summary class="diff-file-summary">
           <span class="diff-file-name truncate-middle" title="{{ file.filename }}">{{ file.filename }}</span>
-          <span class="meta"><cp-badge tone="state-neutral" title="File status">{{ file.status }}</cp-badge> · +{{ file.additions }} -{{ file.deletions }} · {{ file.changes }} changes</span>
+          <span class="meta"><span class="badge state-neutral" title="File status">{{ file.status }}</span> · +{{ file.additions }} -{{ file.deletions }} · {{ file.changes }} changes</span>
         </summary>
 
         {% if let Some(previous) = file.previous_filename %}

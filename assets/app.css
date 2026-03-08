@@ -144,8 +144,9 @@ textarea:focus-visible,
 button:focus-visible,
 a:focus-visible,
 summary:focus-visible,
-[data-cp-button-inner]:focus-visible,
-[data-cp-badge-inner]:focus-visible {
+.button:focus-visible,
+.badge:focus-visible,
+.theme-toggle:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--state-open) 45%, transparent);
   outline-offset: 2px;
 }
@@ -832,11 +833,7 @@ summary:focus-visible,
   z-index: 20;
 }
 
-.header-menu-panel cp-button {
-  width: 100%;
-}
-
-.header-menu-panel cp-button > [data-cp-button-inner] {
+.header-menu-panel .button {
   width: 100%;
 }
 
@@ -1028,7 +1025,7 @@ html[data-theme="dark"] .diff-line .tok-comment {
   border: 0;
 }
 
-cp-card {
+.card {
   display: block;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1037,16 +1034,16 @@ cp-card {
   box-shadow: var(--shadow);
 }
 
-cp-card.tabs-shell,
-cp-card.error-panel {
+.card.tabs-shell,
+.card.error-panel {
   box-shadow: none;
 }
 
-cp-card.tabs-shell {
+.card.tabs-shell {
   padding: var(--card-padding-compact);
 }
 
-cp-alert {
+.alert {
   display: block;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -1055,23 +1052,19 @@ cp-alert {
   background: var(--surface);
 }
 
-cp-alert[tone="success"] {
+.alert--success {
   border-color: color-mix(in srgb, var(--state-approve) 40%, var(--line-strong));
   color: color-mix(in srgb, var(--state-approve) 88%, black);
   background: var(--state-approve-bg);
 }
 
-cp-alert[tone="error"] {
+.alert--error {
   border-color: color-mix(in srgb, var(--state-conflict) 40%, var(--line-strong));
   color: color-mix(in srgb, var(--state-conflict) 88%, black);
   background: var(--state-conflict-bg);
 }
 
-cp-button {
-  display: inline-flex;
-}
-
-[data-cp-button-inner].cp-button {
+.button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1087,67 +1080,63 @@ cp-button {
   cursor: pointer;
 }
 
-[data-cp-button-inner].cp-button:hover {
+.button:hover {
   border-color: var(--text-muted);
 }
 
-[data-cp-button-inner].cp-button--sm {
+.button--sm {
   min-height: 1.8rem;
   padding: 0.34rem 0.64rem;
   font-size: var(--font-size-xs);
 }
 
-[data-cp-button-inner].cp-button--md {
+.button--md {
   min-height: var(--control-sm);
 }
 
-[data-cp-button-inner].cp-button--lg {
+.button--lg {
   min-height: var(--control-md);
   padding: 0.5rem 0.84rem;
 }
 
-[data-cp-button-inner].cp-button--default {
+.button--default {
   background: var(--surface-strong);
 }
 
-[data-cp-button-inner].cp-button--secondary {
+.button--secondary {
   background: var(--surface-soft);
 }
 
-[data-cp-button-inner].cp-button--ghost {
+.button--ghost {
   background: var(--surface);
   color: var(--text-soft);
 }
 
-[data-cp-button-inner].cp-button--approve {
+.button--approve {
   border-color: color-mix(in srgb, var(--state-approve) 55%, var(--line-strong));
   background: var(--state-approve-bg);
   color: color-mix(in srgb, var(--state-approve) 88%, black);
 }
 
-[data-cp-button-inner].cp-button--warning {
+.button--warning {
   border-color: color-mix(in srgb, var(--state-warning) 55%, var(--line-strong));
   background: var(--state-warning-bg);
   color: color-mix(in srgb, var(--state-warning) 90%, black);
 }
 
-[data-cp-button-inner].cp-button--danger {
+.button--danger {
   border-color: color-mix(in srgb, var(--state-conflict) 60%, var(--line-strong));
   background: var(--state-conflict-bg);
   color: color-mix(in srgb, var(--state-conflict) 92%, black);
 }
 
-[data-cp-button-inner].cp-button[disabled],
-[data-cp-button-inner].cp-button[aria-disabled="true"] {
+.button[disabled],
+.button[aria-disabled="true"] {
   opacity: 0.62;
   cursor: not-allowed;
 }
 
-cp-badge {
-  display: inline-flex;
-}
-
-[data-cp-badge-inner].cp-badge {
+.badge {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
@@ -1161,41 +1150,41 @@ cp-badge {
   white-space: nowrap;
 }
 
-[data-cp-badge-inner].state-open {
+.badge.state-open {
   background: var(--state-open-bg);
   border-color: color-mix(in srgb, var(--state-open) 35%, var(--line-strong));
   color: var(--state-open);
 }
 
-[data-cp-badge-inner].state-neutral,
-[data-cp-badge-inner].state-closed,
-[data-cp-badge-inner].state-draft {
+.badge.state-neutral,
+.badge.state-closed,
+.badge.state-draft {
   background: var(--surface-soft);
   border-color: var(--line-strong);
   color: var(--text-soft);
 }
 
-[data-cp-badge-inner].state-merged {
+.badge.state-merged {
   background: var(--state-merged-bg);
   border-color: color-mix(in srgb, var(--state-merged) 40%, var(--line-strong));
   color: var(--state-merged);
 }
 
-[data-cp-badge-inner].state-approved,
-[data-cp-badge-inner].state-merge {
+.badge.state-approved,
+.badge.state-merge {
   background: var(--state-approve-bg);
   border-color: color-mix(in srgb, var(--state-approve) 45%, var(--line-strong));
   color: var(--state-approve);
 }
 
-[data-cp-badge-inner].state-warning,
-[data-cp-badge-inner].state-conflict {
+.badge.state-warning,
+.badge.state-conflict {
   background: var(--state-warning-bg);
   border-color: color-mix(in srgb, var(--state-warning) 50%, var(--line-strong));
   color: var(--state-warning);
 }
 
-.cp-theme-toggle {
+.theme-toggle {
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   width: var(--control-md);
@@ -1209,31 +1198,24 @@ cp-badge {
   font-size: var(--font-size-sm);
 }
 
-.cp-theme-toggle:hover {
+.theme-toggle:hover {
   border-color: var(--text-muted);
 }
 
-.cp-theme-toggle img {
+.theme-toggle img {
   width: 0.94rem;
   height: 0.94rem;
   color: currentColor;
 }
 
-html[data-theme="dark"] .cp-theme-toggle img {
+html[data-theme="dark"] .theme-toggle img {
   filter: brightness(0) invert(1);
 }
 
-cp-combobox {
-  position: relative;
-  display: block;
-}
-
-.cp-combobox-trigger {
+.select-control,
+.multiselect-control {
   width: 100%;
   min-height: var(--control-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -1242,110 +1224,19 @@ cp-combobox {
   padding: 0.34rem 0.5rem;
 }
 
-.cp-combobox-popover {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 0.25rem);
-  z-index: 30;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  box-shadow: var(--shadow);
+.multiselect-control {
+  min-height: 7.25rem;
+  padding: 0.18rem;
 }
 
-cp-combobox.single .cp-combobox-shell {
-  padding: 0.18rem 0.28rem;
+.multiselect-control option {
+  border-radius: 8px;
+  padding: 0.26rem 0.38rem;
 }
 
-cp-combobox.single .cp-combobox-selected {
-  margin-bottom: 0.15rem;
-  max-height: none;
-}
-
-cp-combobox.single .cp-combobox-chip {
-  display: none;
-}
-
-.cp-combobox-shell {
-  border-bottom: 1px solid var(--line);
-  padding: 0.28rem;
-}
-
-.cp-combobox-selected {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.24rem;
-  margin-bottom: 0.24rem;
-  max-height: 4.2rem;
-  overflow-y: auto;
-}
-
-.cp-combobox-selected-empty {
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-}
-
-.cp-combobox-chip {
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--surface-soft);
-  color: var(--text-soft);
-  padding: 0.12rem 0.5rem;
-  font-size: var(--font-size-xxs);
-  cursor: pointer;
-}
-
-.cp-combobox-chip:hover {
+.multiselect-control option:checked {
+  background: color-mix(in srgb, var(--state-open) 16%, var(--surface));
   color: var(--text);
-  border-color: var(--text-muted);
-}
-
-.cp-combobox-input {
-  border: 0;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
-  padding-top: 0.36rem;
-  background: transparent;
-  font-size: var(--font-size-xs);
-}
-
-.cp-combobox-input:focus-visible {
-  outline: none;
-}
-
-.cp-combobox-list {
-  max-height: 13rem;
-  overflow-y: auto;
-}
-
-.cp-combobox-option,
-.cp-combobox-option-empty {
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  padding: 0.4rem 0.52rem;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: var(--font-size-xs);
-}
-
-.cp-combobox-option:last-child {
-  border-bottom: 0;
-}
-
-.cp-combobox-option-check {
-  width: 1rem;
-  text-align: center;
-  color: var(--state-approve);
-}
-
-.cp-combobox-option.is-active {
-  background: var(--surface-soft);
 }
 
 @media (max-width: 1100px) {
@@ -1396,7 +1287,7 @@ cp-combobox.single .cp-combobox-chip {
     padding-right: 0.76rem;
   }
 
-  cp-card {
+  .card {
     padding: 0.72rem;
   }
 
