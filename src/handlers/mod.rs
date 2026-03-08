@@ -238,7 +238,8 @@ mod tests {
 
             assert_eq!(response.status_code(), 200);
             let body = body_text(&response);
-            assert!(body.contains("Loading pull requests"));
+            assert!(body.contains("table-like-row-loading"));
+            assert!(body.contains("global-status-spinner"));
             assert!(body.contains("data-needs-refresh=\"true\""));
         });
     }

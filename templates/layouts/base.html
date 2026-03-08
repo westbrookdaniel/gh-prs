@@ -30,10 +30,16 @@
     <header class="border-b px-4 py-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between gap-4">
         <p><a href="/prs">Pull Requests</a></p>
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark mode">
-          <img src="/assets/icons/moon.svg" alt="" aria-hidden="true" />
-          <span class="sr-only">Dark mode</span>
-        </button>
+        <div class="flex items-center gap-4">
+          <div class="global-status" data-global-status hidden>
+            <span class="global-status-spinner" aria-hidden="true"></span>
+            <span class="global-status-text" data-global-status-text></span>
+          </div>
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark mode">
+            <img src="/assets/icons/moon.svg" alt="" aria-hidden="true" />
+            <span class="sr-only">Dark mode</span>
+          </button>
+        </div>
       </div>
     </header>
     {% block content %}{% endblock %}

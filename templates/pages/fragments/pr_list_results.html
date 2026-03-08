@@ -30,7 +30,23 @@
 </div>
 {% endif %}
 {% else %}
-<p>Loading pull requests...</p>
+<div class="overflow-x-auto">
+  <div class="table-like">
+    <div class="table-like-row grid-cols-pr-list table-like-head" role="row">
+      <div class="table-like-cell" role="columnheader">Repository</div>
+      <div class="table-like-cell" role="columnheader">State</div>
+      <div class="table-like-cell" role="columnheader">Pull Request</div>
+      <div class="table-like-cell" role="columnheader">Author</div>
+      <div class="table-like-cell" role="columnheader">Comments</div>
+      <div class="table-like-cell" role="columnheader">Updated</div>
+    </div>
+    <div class="table-like-row table-like-row-loading grid-cols-pr-list" role="row">
+      <div class="table-like-cell table-like-cell-full table-like-cell-center" role="cell">
+        <span class="global-status-spinner" aria-hidden="true"></span>
+      </div>
+    </div>
+  </div>
+</div>
 {% endif %}
 
 <footer>

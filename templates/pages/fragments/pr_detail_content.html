@@ -48,15 +48,15 @@
 
   <section>
     <h2>Actions</h2>
-    <form method="post" action="{{ model.state_post_path }}">
+    <form method="post" action="{{ model.state_post_path }}" data-status-message="Updating pull request">
         {% if model.is_open(conversation.detail) %}
-        <button type="submit" name="state" value="close">Close PR</button>
+        <button type="submit" name="state" value="close" data-status-message="Closing pull request" data-loading-label="Closing">Close PR</button>
         {% endif %}
         {% if model.is_closed(conversation.detail) %}
-        <button type="submit" name="state" value="reopen">Reopen PR</button>
+        <button type="submit" name="state" value="reopen" data-status-message="Reopening pull request" data-loading-label="Reopening">Reopen PR</button>
         {% endif %}
         {% if conversation.detail.is_draft %}
-        <button type="submit" name="state" value="ready">Mark Ready</button>
+        <button type="submit" name="state" value="ready" data-status-message="Marking pull request ready" data-loading-label="Marking ready">Mark Ready</button>
         {% endif %}
       </form>
 </section>
@@ -129,10 +129,10 @@
     <section>
       <h2>Comment</h2>
       <article>
-        <form method="post" action="{{ model.comment_post_path }}">
+        <form method="post" action="{{ model.comment_post_path }}" data-status-message="Posting comment">
           <label for="comment-body">Comment body</label>
           <textarea id="comment-body" name="body" rows="6" required></textarea>
-          <button type="submit">Post Comment</button>
+          <button type="submit" data-loading-label="Posting comment">Post Comment</button>
         </form>
       </article>
     </section>
@@ -140,12 +140,12 @@
     <section>
       <h2>Review</h2>
       <article>
-        <form method="post" action="{{ model.review_post_path }}">
+        <form method="post" action="{{ model.review_post_path }}" data-status-message="Submitting review">
           <label for="review-body">Review body</label>
           <textarea id="review-body" name="body" rows="6" required></textarea>
-          <button type="submit" name="event" value="approve">Approve</button>
-          <button type="submit" name="event" value="comment">Comment</button>
-          <button type="submit" name="event" value="request_changes">Request changes</button>
+          <button type="submit" name="event" value="approve" data-status-message="Submitting approval" data-loading-label="Approving">Approve</button>
+          <button type="submit" name="event" value="comment" data-status-message="Submitting review comment" data-loading-label="Submitting comment">Comment</button>
+          <button type="submit" name="event" value="request_changes" data-status-message="Requesting changes" data-loading-label="Requesting changes">Request changes</button>
         </form>
       </article>
     </section>
@@ -177,7 +177,7 @@
 
     <section>
       <h2>Add Reviewers</h2>
-      <form id="reviewers-form" method="post" action="{{ model.reviewers_post_path }}">
+      <form id="reviewers-form" method="post" action="{{ model.reviewers_post_path }}" data-status-message="Updating reviewers">
         <label for="reviewers-input">Add reviewers</label>
         <select id="reviewers-input" name="reviewers" multiple size="6" data-auto-submit="true">
           {% for reviewer in model.reviewer_options %}
@@ -203,7 +203,7 @@
 
     <section>
       <h2>Merge</h2>
-      <form method="post" action="{{ model.merge_post_path }}">
+      <form method="post" action="{{ model.merge_post_path }}" data-status-message="Merging">
         <label for="merge-method">Merge</label>
         <select id="merge-method" name="method">
           <option value="merge" selected>Merge commit</option>
@@ -211,7 +211,7 @@
           <option value="rebase">Rebase and merge</option>
         </select>
         <label><input type="checkbox" name="delete_branch" /> Delete branch</label>
-        <button type="submit" {% if model.merge_button_disabled(conversation.detail) %}disabled{% endif %}>{{ model.merge_button_label(conversation.detail) }}</button>
+        <button type="submit" data-loading-label="Merging" {% if model.merge_button_disabled(conversation.detail) %}disabled{% endif %}>{{ model.merge_button_label(conversation.detail) }}</button>
         <p>{{ model.merge_button_reason(conversation.detail) }}</p>
       </form>
       {% else %}

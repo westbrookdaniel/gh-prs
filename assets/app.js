@@ -11,6 +11,55 @@ const FILTER_FIELDS = ["status", "title", "author", "sort", "order"];
 const BATCH_NAV_COOLDOWN_MS = 450;
 let lastNavigationAt = 0;
 let timeAgoIntervalStarted = false;
+const globalStatuses = new Map();
+
+function globalStatusElements() {
+  const container = document.querySelector("[data-global-status]");
+  const text = document.querySelector("[data-global-status-text]");
+  return {
+    container: container instanceof HTMLElement ? container : null,
+    text: text instanceof HTMLElement ? text : null,
+  };
+}
+
+function renderGlobalStatus() {
+  const { container, text } = globalStatusElements();
+  if (!(container instanceof HTMLElement) || !(text instanceof HTMLElement)) {
+    return;
+  }
+
+  if (globalStatuses.size === 0) {
+    container.hidden = true;
+    text.textContent = "";
+    return;
+  }
+
+  const lastStatus = Array.from(globalStatuses.values()).at(-1);
+  container.hidden = false;
+  text.textContent = lastStatus ? lastStatus.message : "Working...";
+}
+
+function addGlobalStatus(key, message) {
+  if (typeof key !== "string" || key === "") {
+    return;
+  }
+
+  globalStatuses.delete(key);
+  globalStatuses.set(key, { message: typeof message === "string" && message !== "" ? message : "Working..." });
+  renderGlobalStatus();
+}
+
+function removeGlobalStatus(key) {
+  if (typeof key !== "string" || key === "") {
+    return;
+  }
+
+  globalStatuses.delete(key);
+  renderGlobalStatus();
+}
+
+window.addGlobalStatus = addGlobalStatus;
+window.removeGlobalStatus = removeGlobalStatus;
 
 function guardedNavigate(url) {
   const now = Date.now();
@@ -515,6 +564,7 @@ async function refreshPageData(main = currentMainPage()) {
 
   const controller = new AbortController();
   pendingRefreshController = controller;
+  addGlobalStatus("refresh", "Refreshing");
 
   try {
     const response = await fetch(refreshUrl.toString(), {
@@ -570,6 +620,7 @@ async function refreshPageData(main = currentMainPage()) {
       }
     }
   } finally {
+    removeGlobalStatus("refresh");
     if (pendingRefreshController === controller) {
       pendingRefreshController = null;
     }
@@ -586,6 +637,125 @@ function initializePageRefresh(main = currentMainPage()) {
       void refreshPageData(main);
     }
   });
+}
+
+function nativeSubmitForm(form) {
+  HTMLFormElement.prototype.submit.call(form);
+}
+
+function formStatusMessage(form, submitter) {
+  if (submitter instanceof HTMLElement) {
+    const submitterMessage = submitter.getAttribute("data-status-message");
+    if (typeof submitterMessage === "string" && submitterMessage.trim() !== "") {
+      return submitterMessage.trim();
+    }
+  }
+
+  const formMessage = form.getAttribute("data-status-message");
+  if (typeof formMessage === "string" && formMessage.trim() !== "") {
+    return formMessage.trim();
+  }
+
+  return "Submitting";
+}
+
+function formStatusKey(form) {
+  const action = form.getAttribute("action") || window.location.pathname;
+  return `submit:${action}`;
+}
+
+function beginFormSubmissionState(form, submitter) {
+  const controls = Array.from(form.elements).filter(
+    (element) =>
+      element instanceof HTMLButtonElement ||
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLSelectElement ||
+      element instanceof HTMLTextAreaElement,
+  );
+
+  const snapshot = controls.map((control) => ({
+    control,
+    disabled: control.disabled,
+    text: control instanceof HTMLButtonElement ? control.textContent : null,
+  }));
+
+  form.dataset.submitting = "true";
+  controls.forEach((control) => {
+    control.disabled = true;
+  });
+
+  if (submitter instanceof HTMLButtonElement) {
+    const loadingLabel = submitter.getAttribute("data-loading-label");
+    if (typeof loadingLabel === "string" && loadingLabel.trim() !== "") {
+      submitter.textContent = loadingLabel.trim();
+    }
+  }
+
+  return () => {
+    delete form.dataset.submitting;
+    snapshot.forEach(({ control, disabled, text }) => {
+      control.disabled = disabled;
+      if (control instanceof HTMLButtonElement && typeof text === "string") {
+        control.textContent = text;
+      }
+    });
+  };
+}
+
+async function submitPostForm(form, submitter) {
+  const actionUrl = new URL(form.getAttribute("action") || window.location.href, window.location.href);
+  if (actionUrl.origin !== window.location.origin) {
+    nativeSubmitForm(form);
+    return;
+  }
+
+  cancelPendingRefresh();
+
+  const statusKey = formStatusKey(form);
+  addGlobalStatus(statusKey, formStatusMessage(form, submitter));
+  const endSubmissionState = beginFormSubmissionState(form, submitter);
+
+  let formData;
+  try {
+    formData = submitter ? new FormData(form, submitter) : new FormData(form);
+  } catch {
+    formData = new FormData(form);
+  }
+
+  try {
+    const response = await fetch(actionUrl.toString(), {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "X-Requested-With": "gh-prs-submit",
+      },
+      body: formData,
+      redirect: "follow",
+    });
+
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    if (!response.ok || !contentType.includes("text/html")) {
+      window.location.assign(response.url || actionUrl.toString());
+      return;
+    }
+
+    const html = await response.text();
+    const parsed = parseNavigationDocument(html);
+    if (!parsed) {
+      window.location.assign(response.url || actionUrl.toString());
+      return;
+    }
+
+    const finalUrl = new URL(response.url || actionUrl.toString(), window.location.href);
+    if (!applyNavigationDocument(parsed, finalUrl, { replaceHistory: false, preserveScroll: false })) {
+      window.location.assign(finalUrl.toString());
+    }
+  } catch {
+    nativeSubmitForm(form);
+  } finally {
+    endSubmissionState();
+    removeGlobalStatus(statusKey);
+  }
 }
 
 async function navigate(urlLike, options = {}) {
@@ -671,6 +841,13 @@ document.addEventListener("submit", (event) => {
   }
 
   const method = (form.getAttribute("method") || "get").toUpperCase();
+  if (method === "POST") {
+    event.preventDefault();
+    const submitter = event.submitter instanceof HTMLElement ? event.submitter : undefined;
+    void submitPostForm(form, submitter);
+    return;
+  }
+
   if (method !== "GET") {
     return;
   }
