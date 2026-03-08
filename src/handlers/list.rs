@@ -4,6 +4,7 @@ use crate::handlers::load::{PageLoadMode, loadable_from_cached};
 use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::{ListPageModelInput, PrListTemplate, SearchArgs, list_page_model};
+use futures_lite::future;
 
 #[tracing::instrument(
     name = "handler.list_pull_requests",
@@ -24,28 +25,43 @@ pub async fn list_pull_requests(request: Request) -> Response {
     let query = SearchArgs::from_request(&request);
     let load_mode = PageLoadMode::from_request(&request);
 
-    let repo_options = if load_mode.bypass_cache() {
-        match state.gh.refresh_accessible_repositories().await {
-            Ok(value) => crate::views::types::Loadable::ready(value, false),
-            Err(err) => return render_gh_error(err),
-        }
-    } else {
-        match state.gh.cached_accessible_repositories().await {
-            Ok(value) => loadable_from_cached(value),
-            Err(err) => return render_gh_error(err),
+    let repo_options_future = {
+        let gh = state.gh.clone();
+        async move {
+            match gh.cached_accessible_repositories().await? {
+                Some(value) => Ok(loadable_from_cached(Some(value))),
+                None => gh
+                    .refresh_accessible_repositories()
+                    .await
+                    .map(|value| crate::views::types::Loadable::ready(value, false)),
+            }
         }
     };
 
-    let results = if load_mode.bypass_cache() {
-        match state.gh.refresh_search_pull_requests(&query).await {
-            Ok(value) => crate::views::types::Loadable::ready(value, false),
-            Err(err) => return render_gh_error(err),
+    let results_future = {
+        let gh = state.gh.clone();
+        let query = query.clone();
+        async move {
+            if load_mode.bypass_cache() {
+                gh.refresh_search_pull_requests(&query)
+                    .await
+                    .map(|value| crate::views::types::Loadable::ready(value, false))
+            } else {
+                gh.cached_search_pull_requests(&query)
+                    .await
+                    .map(loadable_from_cached)
+            }
         }
-    } else {
-        match state.gh.cached_search_pull_requests(&query).await {
-            Ok(value) => loadable_from_cached(value),
-            Err(err) => return render_gh_error(err),
-        }
+    };
+
+    let (repo_options, results) = future::zip(repo_options_future, results_future).await;
+    let repo_options = match repo_options {
+        Ok(value) => value,
+        Err(err) => return render_gh_error(err),
+    };
+    let results = match results {
+        Ok(value) => value,
+        Err(err) => return render_gh_error(err),
     };
     let needs_refresh =
         !load_mode.bypass_cache() && (repo_options.needs_refresh() || results.needs_refresh());

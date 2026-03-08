@@ -24,13 +24,14 @@ mod tests {
     use super::routes::root_redirect;
     use super::state::{AppState, set_app_state};
     use super::write::{merge_pull_request, submit_comment, update_pull_request_state};
+    use crate::gh::CommandClass;
     use crate::gh::GhError;
-    use crate::gh::client::{CommandResult, CommandRunner, GhClient};
+    use crate::gh::client::{CommandResult, CommandRunner, GhClient, GhCommand};
     use crate::gh::models::PullRequestStatus;
     use crate::gh::models::RepoContext;
     use crate::http::{Request, Response};
     use crate::search::SearchArgs;
-    use std::collections::VecDeque;
+    use std::collections::{HashMap, VecDeque};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::Duration;
 
@@ -49,18 +50,56 @@ mod tests {
     #[derive(Default)]
     struct MockRunner {
         responses: Mutex<VecDeque<Result<CommandResult, GhError>>>,
+        classed_responses: Mutex<HashMap<CommandClass, VecDeque<Result<CommandResult, GhError>>>>,
+        seen: Mutex<Vec<GhCommand>>,
     }
 
     impl MockRunner {
         fn with_responses(responses: Vec<Result<CommandResult, GhError>>) -> Self {
             Self {
                 responses: Mutex::new(VecDeque::from(responses)),
+                classed_responses: Mutex::new(HashMap::new()),
+                seen: Mutex::new(Vec::new()),
             }
+        }
+
+        fn with_class_responses(
+            responses: Vec<(CommandClass, Result<CommandResult, GhError>)>,
+        ) -> Self {
+            let mut classed_responses = HashMap::new();
+            for (class, response) in responses {
+                classed_responses
+                    .entry(class)
+                    .or_insert_with(VecDeque::new)
+                    .push_back(response);
+            }
+
+            Self {
+                responses: Mutex::new(VecDeque::new()),
+                classed_responses: Mutex::new(classed_responses),
+                seen: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn seen_commands(&self) -> Vec<GhCommand> {
+            self.seen.lock().expect("seen lock").clone()
         }
     }
 
     impl CommandRunner for MockRunner {
-        fn run(&self, _command: crate::gh::client::GhCommand) -> Result<CommandResult, GhError> {
+        fn run(&self, command: GhCommand) -> Result<CommandResult, GhError> {
+            self.seen.lock().expect("seen lock").push(command.clone());
+
+            if let Some(response) = self
+                .classed_responses
+                .lock()
+                .expect("classed responses lock")
+                .get_mut(&command.class)
+                .and_then(VecDeque::pop_front)
+            {
+                return response;
+            }
+
             self.responses
                 .lock()
                 .expect("responses lock")
@@ -117,6 +156,17 @@ mod tests {
 
     fn state_with_responses(responses: Vec<Result<CommandResult, GhError>>) -> AppState {
         let runner = Arc::new(MockRunner::with_responses(responses));
+        state_with_runner(runner)
+    }
+
+    fn state_with_class_responses(
+        responses: Vec<(CommandClass, Result<CommandResult, GhError>)>,
+    ) -> AppState {
+        let runner = Arc::new(MockRunner::with_class_responses(responses));
+        state_with_runner(runner)
+    }
+
+    fn state_with_runner(runner: Arc<MockRunner>) -> AppState {
         AppState {
             gh: GhClient::with_runner(runner, Duration::from_secs(3)),
             startup_repo: Some(RepoContext {
@@ -197,10 +247,12 @@ mod tests {
     fn list_handler_nocache_fetches_fresh_results() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
-            set_app_state(state_with_responses(vec![
-                ok(""),
-                ok("[]"),
-                ok(r#"[
+            set_app_state(state_with_class_responses(vec![
+                (CommandClass::RepoList, ok("")),
+                (CommandClass::RepoList, ok("[]")),
+                (
+                    CommandClass::PullRequestSearch,
+                    ok(r#"[
                 {
                     "repository": {"nameWithOwner": "acme/widgets"},
                     "number":7,
@@ -214,6 +266,7 @@ mod tests {
                     "commentsCount":2
                 }
             ]"#),
+                ),
             ]));
 
             let response = list_pull_requests(request(
@@ -229,11 +282,58 @@ mod tests {
     }
 
     #[test]
+    fn list_handler_nocache_reuses_cached_repo_options() {
+        let _guard = acquire_test_lock();
+        smol::block_on(async {
+            let runner = Arc::new(MockRunner::with_class_responses(vec![
+                (CommandClass::RepoList, ok("")),
+                (
+                    CommandClass::RepoList,
+                    ok(r#"[
+                        {
+                            "nameWithOwner":"acme/widgets",
+                            "isArchived":false
+                        }
+                    ]"#),
+                ),
+                (CommandClass::PullRequestSearch, ok("[]")),
+            ]));
+            let state = state_with_runner(Arc::clone(&runner));
+            state
+                .gh
+                .refresh_accessible_repositories()
+                .await
+                .expect("prime repo cache");
+            set_app_state(state);
+
+            let response = list_pull_requests(request(
+                "GET /prs?nocache=1 HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            ))
+            .await;
+
+            assert_eq!(response.status_code(), 200);
+            let seen = runner.seen_commands();
+            let repo_list_count = seen
+                .iter()
+                .filter(|command| command.class == CommandClass::RepoList)
+                .count();
+            let search_count = seen
+                .iter()
+                .filter(|command| command.class == CommandClass::PullRequestSearch)
+                .count();
+            assert_eq!(repo_list_count, 2);
+            assert_eq!(search_count, 1);
+        });
+    }
+
+    #[test]
     fn detail_handler_renders_sections() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
-            let state = state_with_responses(vec![
-                ok(r#"{
+            let state = state_with_class_responses(vec![
+                (
+                    CommandClass::PullRequestDetail,
+                    ok(r#"{
                     "number":7,
                     "title":"Improve auth",
                     "body":"Body",
@@ -254,9 +354,10 @@ mod tests {
                     "commits":{"totalCount":3},
                     "files":{"totalCount":5}
                 }"#),
-                ok("[]"),
-                ok("[]"),
-                ok("[]"),
+                ),
+                (CommandClass::IssueComments, ok("[]")),
+                (CommandClass::PullRequestReviews, ok("[]")),
+                (CommandClass::PullRequestReviewComments, ok("[]")),
             ]);
             state
                 .gh
@@ -294,8 +395,10 @@ mod tests {
     fn changes_handler_renders_diff_tab() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
-            let state = state_with_responses(vec![
-                ok(r#"{
+            let state = state_with_class_responses(vec![
+                (
+                    CommandClass::PullRequestDetail,
+                    ok(r#"{
                     "number":7,
                     "title":"Improve auth",
                     "body":"Body",
@@ -316,10 +419,13 @@ mod tests {
                     "commits":{"totalCount":3},
                     "files":{"totalCount":5}
                 }"#),
-                ok("[]"),
-                ok("[]"),
-                ok("[]"),
-                ok(r#"[
+                ),
+                (CommandClass::IssueComments, ok("[]")),
+                (CommandClass::PullRequestReviews, ok("[]")),
+                (CommandClass::PullRequestReviewComments, ok("[]")),
+                (
+                    CommandClass::PullRequestFiles,
+                    ok(r#"[
                     {
                         "filename":"src/main.rs",
                         "status":"modified",
@@ -330,6 +436,7 @@ mod tests {
                         "blob_url":"https://example/blob"
                     }
                 ]"#),
+                ),
             ]);
             state
                 .gh
@@ -371,8 +478,10 @@ mod tests {
     fn changes_handler_renders_partial_cache_when_files_are_missing() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
-            let state = state_with_responses(vec![
-                ok(r#"{
+            let state = state_with_class_responses(vec![
+                (
+                    CommandClass::PullRequestDetail,
+                    ok(r#"{
                     "number":7,
                     "title":"Improve auth",
                     "body":"Body",
@@ -393,9 +502,10 @@ mod tests {
                     "commits":{"totalCount":3},
                     "files":{"totalCount":5}
                 }"#),
-                ok("[]"),
-                ok("[]"),
-                ok("[]"),
+                ),
+                (CommandClass::IssueComments, ok("[]")),
+                (CommandClass::PullRequestReviews, ok("[]")),
+                (CommandClass::PullRequestReviewComments, ok("[]")),
             ]);
             state
                 .gh

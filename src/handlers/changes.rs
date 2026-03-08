@@ -6,6 +6,7 @@ use crate::handlers::load::{PageLoadMode, loadable_from_cached};
 use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
 use crate::views::{PrChangesTemplate, changes_page_model};
+use futures_lite::future;
 
 #[tracing::instrument(
     name = "handler.pull_request_changes",
@@ -42,47 +43,51 @@ pub async fn pull_request_changes(request: Request) -> Response {
 
     let load_mode = PageLoadMode::from_request(&request);
 
-    let (detail, files) = if load_mode.bypass_cache() {
-        let conversation = match state
-            .gh
-            .refresh_pull_request_conversation(&repo_name, number)
-            .await
-        {
-            Ok(value) => value,
-            Err(err) => return render_gh_error(err),
-        };
-        let files = match state
-            .gh
-            .refresh_pull_request_files(&repo_name, number)
-            .await
-        {
-            Ok(value) => value,
-            Err(err) => return render_gh_error(err),
-        };
+    let detail_future = {
+        let gh = state.gh.clone();
+        let repo_name = repo_name.clone();
+        async move {
+            if load_mode.bypass_cache() {
+                gh.refresh_pull_request_conversation(&repo_name, number)
+                    .await
+                    .map(|value| crate::views::types::Loadable::ready(value.detail, false))
+            } else {
+                gh.cached_pull_request_conversation(&repo_name, number)
+                    .await
+                    .map(|value| match value {
+                        Some(cached) => crate::views::types::Loadable::ready(
+                            cached.value.detail,
+                            cached.is_stale,
+                        ),
+                        None => crate::views::types::Loadable::missing(),
+                    })
+            }
+        }
+    };
+    let files_future = {
+        let gh = state.gh.clone();
+        let repo_name = repo_name.clone();
+        async move {
+            if load_mode.bypass_cache() {
+                gh.refresh_pull_request_files(&repo_name, number)
+                    .await
+                    .map(|value| crate::views::types::Loadable::ready(value, false))
+            } else {
+                gh.cached_pull_request_files(&repo_name, number)
+                    .await
+                    .map(loadable_from_cached)
+            }
+        }
+    };
 
-        (
-            crate::views::types::Loadable::ready(conversation.detail, false),
-            crate::views::types::Loadable::ready(files, false),
-        )
-    } else {
-        let detail = match state
-            .gh
-            .cached_pull_request_conversation(&repo_name, number)
-            .await
-        {
-            Ok(value) => match value {
-                Some(cached) => {
-                    crate::views::types::Loadable::ready(cached.value.detail, cached.is_stale)
-                }
-                None => crate::views::types::Loadable::missing(),
-            },
-            Err(err) => return render_gh_error(err),
-        };
-        let files = match state.gh.cached_pull_request_files(&repo_name, number).await {
-            Ok(value) => loadable_from_cached(value),
-            Err(err) => return render_gh_error(err),
-        };
-        (detail, files)
+    let (detail, files) = future::zip(detail_future, files_future).await;
+    let detail = match detail {
+        Ok(value) => value,
+        Err(err) => return render_gh_error(err),
+    };
+    let files = match files {
+        Ok(value) => value,
+        Err(err) => return render_gh_error(err),
     };
     let needs_refresh =
         !load_mode.bypass_cache() && (detail.needs_refresh() || files.needs_refresh());

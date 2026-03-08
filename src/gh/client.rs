@@ -12,6 +12,7 @@ use crate::gh::validation::{validate_pr_number, validate_repo_identifier};
 use crate::gh::{CommandClass, GhError, GhResult};
 use crate::gh_parsing::{parse_preflight_auth, parse_pull_request_files, parse_repo_context};
 use crate::search::SearchArgs;
+use futures_lite::future;
 use serde::{Serialize, de::DeserializeOwned};
 use std::future::Future;
 use std::io;
@@ -156,12 +157,24 @@ impl GhClient {
     #[tracing::instrument(name = "gh.preflight", skip(self))]
     pub async fn preflight(&self) -> GhResult<PreflightDiagnostics> {
         self.cached_or_refresh("preflight|diagnostics", CACHE_PREFLIGHT, || async {
-            let version = self
-                .run_raw_command(
+            let (version, auth) = future::zip(
+                self.run_raw_command(
                     CommandClass::PreflightVersion,
                     vec!["--version".to_string()],
-                )
-                .await?;
+                ),
+                self.run_raw_command(
+                    CommandClass::PreflightAuth,
+                    vec![
+                        "auth".to_string(),
+                        "status".to_string(),
+                        "--json".to_string(),
+                        "hosts".to_string(),
+                    ],
+                ),
+            )
+            .await;
+
+            let version = version?;
             let gh_version = version
                 .stdout
                 .lines()
@@ -176,17 +189,7 @@ impl GhClient {
                 });
             }
 
-            let auth = self
-                .run_raw_command(
-                    CommandClass::PreflightAuth,
-                    vec![
-                        "auth".to_string(),
-                        "status".to_string(),
-                        "--json".to_string(),
-                        "hosts".to_string(),
-                    ],
-                )
-                .await?;
+            let auth = auth?;
 
             let authenticated_hosts =
                 parse_preflight_auth(&auth.stdout).map_err(|details| GhError::ParseFailure {
@@ -271,7 +274,7 @@ impl GhClient {
         owners.sort();
         owners.dedup();
 
-        let mut repos = Vec::new();
+        let mut fetches = Vec::new();
         for owner in owners {
             let mut args = vec!["repo".to_string(), "list".to_string()];
             if !owner.is_empty() {
@@ -284,7 +287,15 @@ impl GhClient {
                 "nameWithOwner,isArchived".to_string(),
             ]);
 
-            let Ok(result) = self.run_raw_command(CommandClass::RepoList, args).await else {
+            let client = self.clone();
+            fetches.push(smol::spawn(async move {
+                client.run_raw_command(CommandClass::RepoList, args).await
+            }));
+        }
+
+        let mut repos = Vec::new();
+        for fetch in fetches {
+            let Ok(result) = fetch.await else {
                 continue;
             };
 
@@ -415,12 +426,22 @@ impl GhClient {
         let repo = validate_repo_identifier(repo)?;
         validate_pr_number(number)?;
 
-        let detail = self.fetch_pull_request_detail(&repo, number).await?;
-        let issue_comments = self.fetch_issue_comments(&repo, number).await?;
-        let reviews = self.fetch_pull_request_reviews(&repo, number).await?;
-        let review_comments = self
-            .fetch_pull_request_review_comments(&repo, number)
-            .await?;
+        let ((detail, issue_comments), (reviews, review_comments)) = future::zip(
+            future::zip(
+                self.fetch_pull_request_detail(&repo, number),
+                self.fetch_issue_comments(&repo, number),
+            ),
+            future::zip(
+                self.fetch_pull_request_reviews(&repo, number),
+                self.fetch_pull_request_review_comments(&repo, number),
+            ),
+        )
+        .await;
+
+        let detail = detail?;
+        let issue_comments = issue_comments?;
+        let reviews = reviews?;
+        let review_comments = review_comments?;
 
         let conversation = PullRequestConversation {
             detail,
@@ -699,7 +720,7 @@ mod tests {
     use crate::gh::models::{PullRequestOrder, PullRequestSort, PullRequestStatus};
     use crate::gh::{CommandClass, GhError};
     use crate::search::SearchArgs;
-    use std::collections::VecDeque;
+    use std::collections::{HashMap, VecDeque};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::Duration;
 
@@ -712,6 +733,7 @@ mod tests {
     #[derive(Default)]
     struct MockRunner {
         responses: Mutex<VecDeque<Result<CommandResult, GhError>>>,
+        classed_responses: Mutex<HashMap<CommandClass, VecDeque<Result<CommandResult, GhError>>>>,
         seen: Mutex<Vec<GhCommand>>,
     }
 
@@ -719,6 +741,25 @@ mod tests {
         fn with_responses(responses: Vec<Result<CommandResult, GhError>>) -> Self {
             Self {
                 responses: Mutex::new(VecDeque::from(responses)),
+                classed_responses: Mutex::new(HashMap::new()),
+                seen: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn with_class_responses(
+            responses: Vec<(CommandClass, Result<CommandResult, GhError>)>,
+        ) -> Self {
+            let mut classed_responses = HashMap::new();
+            for (class, response) in responses {
+                classed_responses
+                    .entry(class)
+                    .or_insert_with(VecDeque::new)
+                    .push_back(response);
+            }
+
+            Self {
+                responses: Mutex::new(VecDeque::new()),
+                classed_responses: Mutex::new(classed_responses),
                 seen: Mutex::new(Vec::new()),
             }
         }
@@ -730,7 +771,19 @@ mod tests {
 
     impl CommandRunner for MockRunner {
         fn run(&self, command: GhCommand) -> Result<CommandResult, GhError> {
+            let class = command.class;
             self.seen.lock().expect("seen lock").push(command);
+
+            if let Some(response) = self
+                .classed_responses
+                .lock()
+                .expect("classed responses lock")
+                .get_mut(&class)
+                .and_then(VecDeque::pop_front)
+            {
+                return response;
+            }
+
             self.responses
                 .lock()
                 .expect("responses lock")
@@ -854,6 +907,57 @@ mod tests {
                 Some("hello from ui".as_bytes())
             );
             assert_eq!(commands[2].class, CommandClass::PullRequestSearch);
+        });
+    }
+
+    #[test]
+    fn refresh_pull_request_conversation_accepts_classed_mock_responses() {
+        let _guard = test_lock().lock().expect("test lock");
+        smol::block_on(async {
+            let runner = Arc::new(MockRunner::with_class_responses(vec![
+                (
+                    CommandClass::PullRequestDetail,
+                    ok(r#"{
+                        "number":7,
+                        "title":"Improve auth",
+                        "body":"Body",
+                        "state":"OPEN",
+                        "isDraft":false,
+                        "author":{"login":"alice"},
+                        "createdAt":"2026-01-01T00:00:00Z",
+                        "updatedAt":"2026-01-02T00:00:00Z",
+                        "url":"https://example/pr/7",
+                        "baseRefName":"main",
+                        "headRefName":"feature",
+                        "mergeStateStatus":"CLEAN",
+                        "mergeable":"MERGEABLE",
+                        "reviewDecision":"REVIEW_REQUIRED",
+                        "reviewRequests":[],
+                        "latestReviews":[],
+                        "statusCheckRollup":null,
+                        "commits":{"totalCount":3},
+                        "files":{"totalCount":5}
+                    }"#),
+                ),
+                (CommandClass::IssueComments, ok("[]")),
+                (CommandClass::PullRequestReviews, ok("[]")),
+                (CommandClass::PullRequestReviewComments, ok("[]")),
+            ]));
+            let client = GhClient::with_runner(
+                Arc::clone(&runner) as Arc<dyn CommandRunner>,
+                Duration::from_secs(5),
+            );
+
+            let conversation = client
+                .refresh_pull_request_conversation("acme/widgets", 7)
+                .await
+                .expect("conversation");
+
+            assert_eq!(conversation.detail.number, 7);
+            assert!(conversation.issue_comments.is_empty());
+            assert!(conversation.reviews.is_empty());
+            assert!(conversation.review_comments.is_empty());
+            assert_eq!(runner.seen_commands().len(), 4);
         });
     }
 }
