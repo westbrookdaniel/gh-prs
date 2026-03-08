@@ -21,28 +21,18 @@
         document.documentElement.dataset.theme = theme;
       })();
     </script>
-    <style>
-      html {
-        background: #f4f4f2;
-        color-scheme: light;
-      }
-
-      html[data-theme="dark"] {
-        background: #111211;
-        color-scheme: dark;
-      }
-    </style>
     <title>{% block title %}smol + askama{% endblock %}</title>
-    <link rel="stylesheet" href="/assets/app.css" />
+    <link rel="stylesheet" href="/assets/reset.css" />
+    <link rel="stylesheet" href="/assets/utilities.css" />
     <script src="/assets/vendor/idiomorph.js"></script>
   </head>
   <body>
-    <header class="app-frame">
-      <div class="app-frame-inner flex items-center justify-between">
-        <a href="/prs" class="app-mark">gh-prs</a>
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Light mode">
-          <img src="/assets/icons/sun.svg" alt="" aria-hidden="true" />
-          <span class="sr-only">Light mode</span>
+    <header class="border-b px-4 py-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between gap-4">
+        <p><a href="/prs">Pull Requests</a></p>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark mode">
+          <img src="/assets/icons/moon.svg" alt="" aria-hidden="true" />
+          <span class="sr-only">Dark mode</span>
         </button>
       </div>
     </header>

@@ -1,105 +1,100 @@
 {% if let Some(detail) = model.detail.value %}
-<section class="card page-header detail-hero">
-  <div class="detail-hero-top">
-    <p class="eyebrow"><a href="{{ model.back_to_list_href }}">Back to list</a></p>
-    <div class="hero-badges">
-      <span class="badge {{ model.state_tone(detail) }}" title="{{ model.state_tooltip(detail) }}">{{ model.state_label(detail) }}</span>
-      {% if detail.is_draft %}<span class="badge state-draft" title="{{ model.draft_tooltip() }}">DRAFT</span>{% endif %}
-      <span class="badge {{ model.merge_state_tone(detail) }}" title="{{ model.merge_state_tooltip(detail) }}">{{ detail.merge_state_status }}</span>
-    </div>
-  </div>
-  <h1 class="page-title">PR #{{ detail.number }} · {{ detail.title }}</h1>
-  <p class="meta">repository: <a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a> · files: <strong>{{ detail.file_count }}</strong></p>
+<section>
+  <p><a href="{{ model.back_to_list_href }}">Back to list</a></p>
+  <h1>PR #{{ detail.number }} · {{ detail.title }}</h1>
+  <dl>
+    <dt>Repository</dt>
+    <dd><a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a></dd>
+    <dt>State</dt>
+    <dd>{{ model.state_label(detail) }}</dd>
+    {% if detail.is_draft %}
+    <dt>Draft</dt>
+    <dd>Yes</dd>
+    {% endif %}
+    <dt>Merge State</dt>
+    <dd>{{ detail.merge_state_status }}</dd>
+    <dt>Files</dt>
+    <dd>{{ detail.file_count }}</dd>
+  </dl>
 </section>
 {% else %}
-<section class="card page-header detail-hero">
-  <div class="detail-hero-top" aria-hidden="true">
-    <p class="skeleton skeleton-line skeleton-line-short"></p>
-    <p class="skeleton skeleton-pill"></p>
-  </div>
-  <p class="skeleton skeleton-line skeleton-line-lg" aria-hidden="true"></p>
-  <p class="skeleton skeleton-line" aria-hidden="true"></p>
+<section>
+  <p>Loading changed files...</p>
 </section>
 {% endif %}
 
 {% if let Some(flash) = model.flash %}
-<div class="alert alert--{{ flash.kind }}" role="status">{{ flash.message }}</div>
+<section role="status">
+  <p>{{ flash.message }}</p>
+</section>
 {% endif %}
 
-<section class="card tabs-shell">
-  <nav class="tab-strip" aria-label="Pull request sections">
+<section>
+  <h2>Sections</h2>
+  <nav aria-label="Pull request sections">
+    <ul>
     {% for tab in model.tabs %}
-    <a class="pill-link {% if tab.selected %}is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
+    <li><a href="{{ tab.href }}">{{ tab.label }}{% if tab.selected %} (current){% endif %}</a></li>
     {% endfor %}
+    </ul>
   </nav>
 </section>
 
-<section class="changes-layout">
-  <aside class="diff-tree" id="diff-file-tree">
-    <h2 class="tree-title">Files</h2>
-    <ul class="file-tree-root">
+<section>
+  <aside id="diff-file-tree">
+    <h2>Files</h2>
+    <ul>
       {% if model.files.value.is_none() %}
-      <li class="file-node-leaf" aria-hidden="true">
-        <span class="skeleton skeleton-line"></span>
-      </li>
-      <li class="file-node-leaf" aria-hidden="true">
-        <span class="skeleton skeleton-line skeleton-line-short"></span>
-      </li>
-      <li class="file-node-leaf" aria-hidden="true">
-        <span class="skeleton skeleton-line"></span>
-      </li>
+      <li>Loading file list...</li>
       {% endif %}
       {% for item in model.tree_items %}
-      <li class="file-node-leaf">
+      <li>
         <button type="button" class="file-leaf-link" data-target="{{ item.id }}">
-          <span class="file-leaf-name truncate-middle" title="{{ item.filename }}">{{ item.filename }}</span>
-          <span class="meta">+{{ item.additions }} -{{ item.deletions }}</span>
+          {{ item.filename }} (+{{ item.additions }} -{{ item.deletions }})
         </button>
       </li>
       {% endfor %}
     </ul>
   </aside>
 
-  <div class="diff-content">
+  <div>
     {% if model.files.value.is_none() %}
-    <section class="skeleton-stack" aria-hidden="true">
-      <article class="diff-file-section skeleton-card-block">
-        <p class="skeleton skeleton-line skeleton-line-lg"></p>
-        <p class="skeleton skeleton-line"></p>
-        <p class="skeleton skeleton-line"></p>
-        <p class="skeleton skeleton-line skeleton-line-short"></p>
-      </article>
-      <article class="diff-file-section skeleton-card-block">
-        <p class="skeleton skeleton-line skeleton-line-lg"></p>
-        <p class="skeleton skeleton-line"></p>
-        <p class="skeleton skeleton-line skeleton-line-short"></p>
-      </article>
-    </section>
+    <p>Loading file changes...</p>
     {% else if model.rendered_files.is_empty() %}
-    <section><p class="empty">No changed files were returned.</p></section>
+    <section><p>No changed files were returned.</p></section>
     {% endif %}
 
     {% for file in model.rendered_files %}
-    <section id="{{ file.id }}" class="diff-file-section">
-      <details class="diff-file-accordion" {% if !file.is_collapsed %}open{% endif %}>
-        <summary class="diff-file-summary">
-          <span class="diff-file-name truncate-middle" title="{{ file.filename }}">{{ file.filename }}</span>
-          <span class="meta"><span class="badge state-neutral" title="File status">{{ file.status }}</span> · +{{ file.additions }} -{{ file.deletions }} · {{ file.changes }} changes</span>
+    <section id="{{ file.id }}">
+      <details {% if !file.is_collapsed %}open{% endif %}>
+        <summary>
+          {{ file.filename }}
         </summary>
 
+        <dl>
+          <dt>Status</dt>
+          <dd>{{ file.status }}</dd>
+          <dt>Additions</dt>
+          <dd>{{ file.additions }}</dd>
+          <dt>Deletions</dt>
+          <dd>{{ file.deletions }}</dd>
+          <dt>Total Changes</dt>
+          <dd>{{ file.changes }}</dd>
+        </dl>
+
         {% if let Some(previous) = file.previous_filename %}
-        <p class="meta">renamed from <span class="truncate-middle" title="{{ previous }}">{{ previous }}</span></p>
+        <p>Renamed from {{ previous }}</p>
         {% endif %}
 
         {% if file.has_patch %}
-        <pre class="diff-block diff-lines-block">{% for line in file.lines %}<span class="diff-line diff-{{ line.kind_class }}">{{ line.text|safe }}</span>
+        <pre>{% for line in file.lines %}{{ line.text|safe }}
 {% endfor %}</pre>
         {% else %}
-        <p class="empty">Patch not available for this file.</p>
+        <p>Patch not available for this file.</p>
         {% endif %}
 
         {% if !file.blob_url.is_empty() %}
-        <p class="meta"><a href="{{ file.blob_url }}">View file on GitHub</a></p>
+        <p><a href="{{ file.blob_url }}">View file on GitHub</a></p>
         {% endif %}
       </details>
     </section>

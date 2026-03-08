@@ -1,72 +1,42 @@
 {% if let Some(results) = model.results.value %}
 {% if results.is_empty() %}
-<p class="empty">No pull requests found.</p>
+<p>No pull requests found.</p>
 {% else %}
-<ul class="pr-list">
-  {% for row in results %}
-  <li class="pr-item">
-    <article>
-      <div class="pr-item-top">
-        <div class="pr-author-avatar" aria-hidden="true" style="{{ model.author_avatar_style(row) }}">
-          {% if model.author_avatar_fallback(row) %}
-          <span class="avatar-fallback">{{ model.author_initial(row) }}</span>
-          {% else %}
-          <img src="{{ model.author_avatar_url(row) }}" alt="" loading="lazy" onerror="this.closest('.pr-author-avatar').classList.add('is-fallback')" />
-          {% endif %}
-        </div>
-        <div class="pr-item-main">
-          <div class="pr-item-headline">
-            <p class="meta repo-meta">{{ row.repository_name_with_owner }}</p>
-            <span class="badge {{ model.state_tone(row) }}" title="{{ model.state_tooltip(row) }}">{{ model.state_label(row) }}</span>
-          </div>
-          <h3 class="pr-title"><a href="{{ model.detail_path(row) }}">#{{ row.number }} · {{ row.title }}</a></h3>
-          <p class="meta pr-item-meta">author: <strong>{{ row.author }}</strong> · comments: <strong>{{ row.comment_count }}</strong> · updated: {{ model.formatted_updated_at(row) }}</p>
-        </div>
+<div class="overflow-x-auto">
+  <div class="table-like">
+    <div class="table-like-row grid-cols-pr-list table-like-head" role="row">
+      <div class="table-like-cell" role="columnheader">Repository</div>
+      <div class="table-like-cell" role="columnheader">State</div>
+      <div class="table-like-cell" role="columnheader">Pull Request</div>
+      <div class="table-like-cell" role="columnheader">Author</div>
+      <div class="table-like-cell" role="columnheader">Comments</div>
+      <div class="table-like-cell" role="columnheader">Updated</div>
+    </div>
+    {% for row in results %}
+    <div class="table-like-row grid-cols-pr-list" role="row">
+      <div class="table-like-cell" role="cell">{{ row.repository_name_with_owner }}</div>
+      <div class="table-like-cell" role="cell">{{ model.state_label(row) }}</div>
+      <div class="table-like-cell" role="cell">
+        <a href="{{ model.detail_path(row) }}" class="block truncate">#{{ row.number }} · {{ row.title }}</a>
       </div>
-    </article>
-  </li>
-  {% endfor %}
-</ul>
+      <div class="table-like-cell" role="cell">{{ row.author }}</div>
+      <div class="table-like-cell" role="cell">{{ row.comment_count }}</div>
+      <div class="table-like-cell" role="cell">
+        <time data-time-ago datetime="{{ row.updated_at }}">{{ model.formatted_updated_at(row) }}</time>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
 {% endif %}
 {% else %}
-<ul class="pr-list pr-list-skeleton" aria-label="Loading pull requests">
-  <li class="pr-item skeleton-card">
-    <div class="pr-item-top">
-      <span class="skeleton skeleton-avatar" aria-hidden="true"></span>
-      <div class="pr-item-main">
-        <p class="skeleton skeleton-pill skeleton-repo" aria-hidden="true"></p>
-        <p class="skeleton skeleton-line skeleton-title" aria-hidden="true"></p>
-        <p class="skeleton skeleton-line skeleton-meta" aria-hidden="true"></p>
-      </div>
-    </div>
-  </li>
-  <li class="pr-item skeleton-card">
-    <div class="pr-item-top">
-      <span class="skeleton skeleton-avatar" aria-hidden="true"></span>
-      <div class="pr-item-main">
-        <p class="skeleton skeleton-pill skeleton-repo" aria-hidden="true"></p>
-        <p class="skeleton skeleton-line skeleton-title" aria-hidden="true"></p>
-        <p class="skeleton skeleton-line skeleton-meta" aria-hidden="true"></p>
-      </div>
-    </div>
-  </li>
-  <li class="pr-item skeleton-card">
-    <div class="pr-item-top">
-      <span class="skeleton skeleton-avatar" aria-hidden="true"></span>
-      <div class="pr-item-main">
-        <p class="skeleton skeleton-pill skeleton-repo" aria-hidden="true"></p>
-        <p class="skeleton skeleton-line skeleton-title" aria-hidden="true"></p>
-        <p class="skeleton skeleton-line skeleton-meta" aria-hidden="true"></p>
-      </div>
-    </div>
-  </li>
-</ul>
+<p>Loading pull requests...</p>
 {% endif %}
 
-<footer class="list-footnote-row">
+<footer>
   {% if model.has_results_limit_warning() %}
-  <p class="meta subtle-note">Some results may be hidden.</p>
+  <p>Some results may be hidden.</p>
   {% else %}
-  <p class="meta subtle-note text-right">{{ model.row_count() }} results</p>
+  <p>{{ model.row_count() }} results</p>
   {% endif %}
 </footer>

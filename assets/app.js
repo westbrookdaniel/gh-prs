@@ -10,6 +10,7 @@ const FILTER_FIELDS = ["status", "title", "author", "sort", "order"];
 
 const BATCH_NAV_COOLDOWN_MS = 450;
 let lastNavigationAt = 0;
+let timeAgoIntervalStarted = false;
 
 function guardedNavigate(url) {
   const now = Date.now();
@@ -158,12 +159,12 @@ function preferredTheme() {
 }
 
 function updateThemeToggleLabel(button) {
-  const current = normalizeTheme(document.documentElement.dataset.theme || "light");
+  const current = normalizeTheme(document.documentElement.dataset.theme || preferredTheme());
   const isDark = current === "dark";
   button.innerHTML = isDark
-    ? '<img src="/assets/icons/moon.svg" alt="" aria-hidden="true" /><span class="sr-only">Dark mode</span>'
-    : '<img src="/assets/icons/sun.svg" alt="" aria-hidden="true" /><span class="sr-only">Light mode</span>';
-  button.setAttribute("aria-label", isDark ? "Dark mode" : "Light mode");
+    ? '<img src="/assets/icons/sun.svg" alt="" aria-hidden="true" /><span class="sr-only">Light mode</span>'
+    : '<img src="/assets/icons/moon.svg" alt="" aria-hidden="true" /><span class="sr-only">Dark mode</span>';
+  button.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
 }
 
 function applyTheme(theme) {
@@ -188,11 +189,77 @@ function initializeThemeToggle() {
   }
 
   button.dataset.bound = "true";
+  updateThemeToggleLabel(button);
   button.addEventListener("click", () => {
     const current = normalizeTheme(document.documentElement.dataset.theme || preferredTheme());
     applyTheme(current === "dark" ? "light" : "dark");
   });
-  updateThemeToggleLabel(button);
+}
+
+function formatRelativeTime(date) {
+  const diffMs = date.getTime() - Date.now();
+  const absSeconds = Math.abs(Math.round(diffMs / 1000));
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+  if (absSeconds < 60) {
+    return formatter.format(Math.round(diffMs / 1000), "second");
+  }
+
+  const absMinutes = Math.abs(Math.round(diffMs / 60000));
+  if (absMinutes < 60) {
+    return formatter.format(Math.round(diffMs / 60000), "minute");
+  }
+
+  const absHours = Math.abs(Math.round(diffMs / 3600000));
+  if (absHours < 24) {
+    return formatter.format(Math.round(diffMs / 3600000), "hour");
+  }
+
+  const absDays = Math.abs(Math.round(diffMs / 86400000));
+  if (absDays < 30) {
+    return formatter.format(Math.round(diffMs / 86400000), "day");
+  }
+
+  const absMonths = Math.abs(Math.round(diffMs / 2629800000));
+  if (absMonths < 12) {
+    return formatter.format(Math.round(diffMs / 2629800000), "month");
+  }
+
+  return formatter.format(Math.round(diffMs / 31557600000), "year");
+}
+
+function renderTimeAgoElements(root = document) {
+  root.querySelectorAll("time[data-time-ago]").forEach((element) => {
+    if (!(element instanceof HTMLTimeElement)) {
+      return;
+    }
+
+    const raw = element.getAttribute("datetime");
+    if (!raw) {
+      return;
+    }
+
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) {
+      return;
+    }
+
+    element.textContent = formatRelativeTime(date);
+    element.title = date.toLocaleString();
+  });
+}
+
+function initializeTimeAgo() {
+  renderTimeAgoElements();
+
+  if (timeAgoIntervalStarted) {
+    return;
+  }
+
+  timeAgoIntervalStarted = true;
+  window.setInterval(() => {
+    renderTimeAgoElements();
+  }, 60000);
 }
 
 function getPrFilterForm() {
@@ -385,6 +452,7 @@ function initializeDiffTreeButtons() {
 
 function initializePageUi() {
   initializeThemeToggle();
+  initializeTimeAgo();
   initializePrFilters();
   initializeAutoSubmitControls();
   initializeDiffTreeButtons();
@@ -488,6 +556,7 @@ async function refreshPageData(main = currentMainPage()) {
     const nextMain = currentMainPage();
     if (nextMain) {
       clearRefreshStatus(nextMain);
+      initializePageUi();
       initializePageRefresh(nextMain);
     }
   } catch (error) {
@@ -626,24 +695,6 @@ window.addEventListener("popstate", () => {
     preserveScroll: true,
   });
 });
-
-document.addEventListener(
-  "error",
-  (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLImageElement)) {
-      return;
-    }
-    if (!target.closest(".pr-author-avatar")) {
-      return;
-    }
-    const avatar = target.closest(".pr-author-avatar");
-    if (avatar) {
-      avatar.classList.add("is-fallback");
-    }
-  },
-  true,
-);
 
 initializePageUi();
 initializePageRefresh();
