@@ -4,7 +4,6 @@
     <div class="panel-pad stack-compact">
       <div class="panel-head">
         <div class="stack-compact">
-          <p><a href="{{ model.back_to_list_href }}">Back to list</a></p>
           <h1>PR #{{ conversation.detail.number }} · {{ conversation.detail.title }}</h1>
         </div>
         <div class="panel-head-actions">
@@ -12,6 +11,7 @@
             <summary class="popover-trigger popover-trigger-icon">...</summary>
             <div class="popover-panel popover-panel-right">
               <form method="post" action="{{ model.state_post_path }}" data-status-message="Updating pull request" class="field-stack">
+                <a href="{{ conversation.detail.url }}">Open on GitHub</a>
                 {% if model.is_open(conversation.detail) %}
                 <button type="submit" name="state" value="close" data-status-message="Closing pull request" data-loading-label="Closing">Close PR</button>
                 {% endif %}
@@ -28,7 +28,7 @@
       </div>
     </div>
     <div class="summary-grid">
-      <div class="summary-item"><p class="summary-label">Pull Request</p><p class="summary-value"><a href="{{ conversation.detail.url }}">Open on GitHub</a></p></div>
+      <div class="summary-item"><p class="summary-label">Pull Request</p><p class="summary-value">#{{ conversation.detail.number }}</p></div>
       <div class="summary-item"><p class="summary-label">Repository</p><p class="summary-value"><a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a></p></div>
       <div class="summary-item"><p class="summary-label">State</p><p class="summary-value">{{ model.state_label(conversation.detail) }}{% if conversation.detail.is_draft %} · Draft{% endif %}</p></div>
       <div class="summary-item"><p class="summary-label">Review</p><p class="summary-value">{{ model.review_decision(conversation.detail) }}</p></div>
