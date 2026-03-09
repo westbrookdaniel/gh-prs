@@ -422,6 +422,7 @@ pub struct PrChangesPageModel {
     pub tree_items: Vec<DiffTreeItemView>,
     pub flash: Option<FlashMessageView>,
     pub back_to_list_href: String,
+    pub state_post_path: String,
     pub tabs: Vec<DetailTabView>,
 }
 
@@ -436,6 +437,30 @@ impl PrChangesPageModel {
 
     pub fn state_tooltip(&self, detail: &PullRequestDetail) -> String {
         super::helpers::pr_state_tooltip(&detail.state, detail.is_draft)
+    }
+
+    pub fn is_open(&self, detail: &PullRequestDetail) -> bool {
+        detail.state.eq_ignore_ascii_case("OPEN")
+    }
+
+    pub fn is_closed(&self, detail: &PullRequestDetail) -> bool {
+        detail.state.eq_ignore_ascii_case("CLOSED")
+    }
+
+    pub fn review_decision<'a>(&self, detail: &'a PullRequestDetail) -> &'a str {
+        detail.review_decision.as_deref().unwrap_or("NONE")
+    }
+
+    pub fn formatted_created_at(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::format_timestamp(&detail.created_at)
+    }
+
+    pub fn formatted_updated_at(&self, detail: &PullRequestDetail) -> String {
+        super::helpers::format_timestamp(&detail.updated_at)
+    }
+
+    pub fn merge_state_explainer(&self, detail: &PullRequestDetail) -> Option<String> {
+        super::helpers::merge_state_explainer(&detail.merge_state_status)
     }
 
     pub fn draft_tooltip(&self) -> &'static str {

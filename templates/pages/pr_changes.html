@@ -3,7 +3,7 @@
 {% block title %}{{ model.page_title }}{% endblock %}
 
 {% block content %}
-<main class="page changes-page page-consistent" data-refresh-path="{{ model.refresh_path }}" data-needs-refresh="{{ model.needs_refresh }}">
+<main class="page changes-page page-consistent page-shell" data-refresh-path="{{ model.refresh_path }}" data-needs-refresh="{{ model.needs_refresh }}">
   <section class="page-refresh-status" data-page-refresh-status aria-live="polite"></section>
   <div id="pr-changes-content">
     {% include "pages/fragments/pr_changes_content.html" %}

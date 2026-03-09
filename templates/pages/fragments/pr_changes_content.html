@@ -1,103 +1,122 @@
-{% if let Some(detail) = model.detail.value %}
-<section>
-  <p><a href="{{ model.back_to_list_href }}">Back to list</a></p>
-  <h1>PR #{{ detail.number }} · {{ detail.title }}</h1>
-  <dl>
-    <dt>Repository</dt>
-    <dd><a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a></dd>
-    <dt>State</dt>
-    <dd>{{ model.state_label(detail) }}</dd>
-    {% if detail.is_draft %}
-    <dt>Draft</dt>
-    <dd>Yes</dd>
+<div class="page-stack">
+  {% if let Some(detail) = model.detail.value %}
+  <section class="panel">
+    <div class="panel-pad stack-compact">
+      <div class="panel-head">
+        <div class="stack-compact">
+          <p><a href="{{ model.back_to_list_href }}">Back to list</a></p>
+          <h1>PR #{{ detail.number }} · {{ detail.title }}</h1>
+        </div>
+        <div class="panel-head-actions">
+          <details class="popover-shell">
+            <summary class="popover-trigger popover-trigger-icon">...</summary>
+            <div class="popover-panel popover-panel-right">
+              <form method="post" action="{{ model.state_post_path }}" data-status-message="Updating pull request" class="field-stack">
+                {% if model.is_open(detail) %}
+                <button type="submit" name="state" value="close" data-status-message="Closing pull request" data-loading-label="Closing">Close PR</button>
+                {% endif %}
+                {% if model.is_closed(detail) %}
+                <button type="submit" name="state" value="reopen" data-status-message="Reopening pull request" data-loading-label="Reopening">Reopen PR</button>
+                {% endif %}
+                {% if detail.is_draft %}
+                <button type="submit" name="state" value="ready" data-status-message="Marking pull request ready" data-loading-label="Marking ready">Mark Ready</button>
+                {% endif %}
+              </form>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+    <div class="summary-grid">
+      <div class="summary-item"><p class="summary-label">Pull Request</p><p class="summary-value"><a href="{{ detail.url }}">Open on GitHub</a></p></div>
+      <div class="summary-item"><p class="summary-label">Repository</p><p class="summary-value"><a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a></p></div>
+      <div class="summary-item"><p class="summary-label">State</p><p class="summary-value">{{ model.state_label(detail) }}{% if detail.is_draft %} · Draft{% endif %}</p></div>
+      <div class="summary-item"><p class="summary-label">Review</p><p class="summary-value">{{ model.review_decision(detail) }}</p></div>
+      <div class="summary-item"><p class="summary-label">Merge</p><p class="summary-value">{{ detail.merge_state_status }}</p></div>
+      <div class="summary-item"><p class="summary-label">Author</p><p class="summary-value">{{ detail.author }}</p></div>
+      <div class="summary-item"><p class="summary-label">Created</p><p class="summary-value">{{ model.formatted_created_at(detail) }}</p></div>
+      <div class="summary-item"><p class="summary-label">Updated</p><p class="summary-value">{{ model.formatted_updated_at(detail) }}</p></div>
+      <div class="summary-item"><p class="summary-label">Base</p><p class="summary-value"><code>{{ detail.base_ref_name }}</code></p></div>
+      <div class="summary-item"><p class="summary-label">Head</p><p class="summary-value"><code>{{ detail.head_ref_name }}</code></p></div>
+      <div class="summary-item"><p class="summary-label">Mergeable</p><p class="summary-value">{{ detail.mergeable }}</p></div>
+    </div>
+    {% if let Some(explainer) = model.merge_state_explainer(detail) %}
+    <div class="panel-pad">
+      <p class="text-muted">{{ explainer }}</p>
+    </div>
     {% endif %}
-    <dt>Merge State</dt>
-    <dd>{{ detail.merge_state_status }}</dd>
-    <dt>Files</dt>
-    <dd>{{ detail.file_count }}</dd>
-  </dl>
-</section>
-{% else %}
-<section>
-  <p>Loading changed files...</p>
-</section>
-{% endif %}
+  </section>
+  {% else %}
+  <section class="panel loading-box">
+    <span class="global-status-spinner" aria-hidden="true"></span>
+  </section>
+  {% endif %}
 
-{% if let Some(flash) = model.flash %}
-<section role="status">
-  <p>{{ flash.message }}</p>
-</section>
-{% endif %}
+  {% if let Some(flash) = model.flash %}
+  <section class="panel panel-pad" role="status">
+    <p>{{ flash.message }}</p>
+  </section>
+  {% endif %}
 
-<section>
-  <h2>Sections</h2>
-  <nav aria-label="Pull request sections">
-    <ul>
-    {% for tab in model.tabs %}
-    <li><a href="{{ tab.href }}">{{ tab.label }}{% if tab.selected %} (current){% endif %}</a></li>
-    {% endfor %}
-    </ul>
-  </nav>
-</section>
+  <section class="panel panel-pad">
+    <nav aria-label="Pull request sections" class="section-nav">
+      {% for tab in model.tabs %}
+      <a href="{{ tab.href }}">{{ tab.label }}{% if tab.selected %} (current){% endif %}</a>
+      {% endfor %}
+    </nav>
+  </section>
 
-<section>
-  <aside id="diff-file-tree">
-    <h2>Files</h2>
-    <ul>
+  <section class="content-grid">
+    <aside id="diff-file-tree" class="panel panel-pad">
       {% if model.files.value.is_none() %}
-      <li>Loading file list...</li>
-      {% endif %}
-      {% for item in model.tree_items %}
-      <li>
-        <button type="button" class="file-leaf-link" data-target="{{ item.id }}">
+      <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+      {% else %}
+      <div class="sidebar-list">
+        {% for item in model.tree_items %}
+        <button type="button" class="file-leaf-link file-index-button truncate" data-target="{{ item.id }}">
           {{ item.filename }} (+{{ item.additions }} -{{ item.deletions }})
         </button>
-      </li>
-      {% endfor %}
-    </ul>
-  </aside>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </aside>
 
-  <div>
-    {% if model.files.value.is_none() %}
-    <p>Loading file changes...</p>
-    {% else if model.rendered_files.is_empty() %}
-    <section><p>No changed files were returned.</p></section>
-    {% endif %}
+    <div class="page-stack">
+      {% if model.files.value.is_none() %}
+      <section class="panel loading-box">
+        <span class="global-status-spinner" aria-hidden="true"></span>
+      </section>
+      {% else if model.rendered_files.is_empty() %}
+      <section class="panel panel-pad"><p>No changed files were returned.</p></section>
+      {% endif %}
 
-    {% for file in model.rendered_files %}
-    <section id="{{ file.id }}">
-      <details {% if !file.is_collapsed %}open{% endif %}>
-        <summary>
-          {{ file.filename }}
-        </summary>
-
-        <dl>
-          <dt>Status</dt>
-          <dd>{{ file.status }}</dd>
-          <dt>Additions</dt>
-          <dd>{{ file.additions }}</dd>
-          <dt>Deletions</dt>
-          <dd>{{ file.deletions }}</dd>
-          <dt>Total Changes</dt>
-          <dd>{{ file.changes }}</dd>
-        </dl>
-
-        {% if let Some(previous) = file.previous_filename %}
-        <p>Renamed from {{ previous }}</p>
-        {% endif %}
-
-        {% if file.has_patch %}
-        <pre>{% for line in file.lines %}{{ line.text|safe }}
+      {% for file in model.rendered_files %}
+      <section id="{{ file.id }}" class="diff-file">
+        <details {% if !file.is_collapsed %}open{% endif %}>
+          <summary>{{ file.filename }}</summary>
+          <div class="diff-file-body stack-compact">
+            <div class="meta-inline">
+              <span>Status: {{ file.status }}</span>
+              <span>Additions: {{ file.additions }}</span>
+              <span>Deletions: {{ file.deletions }}</span>
+              <span>Total: {{ file.changes }}</span>
+            </div>
+            {% if let Some(previous) = file.previous_filename %}
+            <p class="text-muted">Renamed from {{ previous }}</p>
+            {% endif %}
+            {% if file.has_patch %}
+            <pre>{% for line in file.lines %}{{ line.text|safe }}
 {% endfor %}</pre>
-        {% else %}
-        <p>Patch not available for this file.</p>
-        {% endif %}
-
-        {% if !file.blob_url.is_empty() %}
-        <p><a href="{{ file.blob_url }}">View file on GitHub</a></p>
-        {% endif %}
-      </details>
-    </section>
-    {% endfor %}
-  </div>
-</section>
+            {% else %}
+            <p>Patch not available for this file.</p>
+            {% endif %}
+            {% if !file.blob_url.is_empty() %}
+            <p><a href="{{ file.blob_url }}">View file on GitHub</a></p>
+            {% endif %}
+          </div>
+        </details>
+      </section>
+      {% endfor %}
+    </div>
+  </section>
+</div>

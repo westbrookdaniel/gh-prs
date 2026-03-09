@@ -536,7 +536,8 @@ mod tests {
             let body = body_text(&response);
             assert!(body.contains("PR #7 · Improve auth"));
             assert!(body.contains("data-needs-refresh=\"true\""));
-            assert!(body.contains("Loading file changes"));
+            assert!(body.contains("loading-box"));
+            assert!(body.contains("global-status-spinner"));
         });
     }
 

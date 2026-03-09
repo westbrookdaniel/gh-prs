@@ -10,8 +10,8 @@ use crate::views::helpers::{
     review_state_tone, sort_controls, with_query,
 };
 use crate::views::types::{
-    ErrorPageModel, FlashMessageView, IssueCommentView, Loadable, PrChangesPageModel,
-    PrDetailPageModel, PrListPageModel, PullRequestReviewView, ReviewCommentView, checks_view,
+    checks_view, ErrorPageModel, FlashMessageView, IssueCommentView, Loadable, PrChangesPageModel,
+    PrDetailPageModel, PrListPageModel, PullRequestReviewView, ReviewCommentView,
 };
 
 pub struct ListPageModelInput<'a> {
@@ -159,6 +159,7 @@ pub fn changes_page_model(
         tree_items,
         flash,
         back_to_list_href: default_list_back_href(query.as_deref()),
+        state_post_path: repo_action_path(&repo.name_with_owner, number, "state", query.as_deref()),
         tabs: build_detail_tabs(repo, number, query.as_deref(), true),
     }
 }

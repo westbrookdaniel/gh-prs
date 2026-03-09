@@ -1,222 +1,203 @@
-{% if let Some(conversation) = model.conversation.value %}
-<section>
-  <p><a href="{{ model.back_to_list_href }}">Back to list</a></p>
-  <header>
-    <h1>PR #{{ conversation.detail.number }} · {{ conversation.detail.title }}</h1>
-  </header>
-
-  <section>
-    <h2>Status</h2>
-    <dl>
-      <dt>Pull Request State</dt>
-      <dd>{{ model.state_label(conversation.detail) }}</dd>
-      {% if conversation.detail.is_draft %}
-      <dt>Draft</dt>
-      <dd>Yes</dd>
-      {% endif %}
-      <dt>Review Decision</dt>
-      <dd>{{ model.review_decision(conversation.detail) }}</dd>
-      <dt>Merge State</dt>
-      <dd>{{ conversation.detail.merge_state_status }}</dd>
-    </dl>
-  </section>
-
-  <section>
-    <h2>Metadata</h2>
-    <dl>
-      <dt>Repository</dt>
-      <dd><a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a></dd>
-      <dt>GitHub</dt>
-      <dd><a href="{{ conversation.detail.url }}">Open on GitHub</a></dd>
-      <dt>Author</dt>
-      <dd>{{ conversation.detail.author }}</dd>
-      <dt>Created</dt>
-      <dd>{{ model.formatted_created_at(conversation.detail) }}</dd>
-      <dt>Updated</dt>
-      <dd>{{ model.formatted_updated_at(conversation.detail) }}</dd>
-      <dt>Base Branch</dt>
-      <dd><code>{{ conversation.detail.base_ref_name }}</code></dd>
-      <dt>Head Branch</dt>
-      <dd><code>{{ conversation.detail.head_ref_name }}</code></dd>
-      <dt>Mergeable</dt>
-      <dd>{{ conversation.detail.mergeable }}</dd>
-    </dl>
+<div class="page-stack">
+  {% if let Some(conversation) = model.conversation.value %}
+  <section class="panel">
+    <div class="panel-pad stack-compact">
+      <div class="panel-head">
+        <div class="stack-compact">
+          <p><a href="{{ model.back_to_list_href }}">Back to list</a></p>
+          <h1>PR #{{ conversation.detail.number }} · {{ conversation.detail.title }}</h1>
+        </div>
+        <div class="panel-head-actions">
+          <details class="popover-shell">
+            <summary class="popover-trigger popover-trigger-icon">...</summary>
+            <div class="popover-panel popover-panel-right">
+              <form method="post" action="{{ model.state_post_path }}" data-status-message="Updating pull request" class="field-stack">
+                {% if model.is_open(conversation.detail) %}
+                <button type="submit" name="state" value="close" data-status-message="Closing pull request" data-loading-label="Closing">Close PR</button>
+                {% endif %}
+                {% if model.is_closed(conversation.detail) %}
+                <button type="submit" name="state" value="reopen" data-status-message="Reopening pull request" data-loading-label="Reopening">Reopen PR</button>
+                {% endif %}
+                {% if conversation.detail.is_draft %}
+                <button type="submit" name="state" value="ready" data-status-message="Marking pull request ready" data-loading-label="Marking ready">Mark Ready</button>
+                {% endif %}
+              </form>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+    <div class="summary-grid">
+      <div class="summary-item"><p class="summary-label">Pull Request</p><p class="summary-value"><a href="{{ conversation.detail.url }}">Open on GitHub</a></p></div>
+      <div class="summary-item"><p class="summary-label">Repository</p><p class="summary-value"><a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a></p></div>
+      <div class="summary-item"><p class="summary-label">State</p><p class="summary-value">{{ model.state_label(conversation.detail) }}{% if conversation.detail.is_draft %} · Draft{% endif %}</p></div>
+      <div class="summary-item"><p class="summary-label">Review</p><p class="summary-value">{{ model.review_decision(conversation.detail) }}</p></div>
+      <div class="summary-item"><p class="summary-label">Merge</p><p class="summary-value">{{ conversation.detail.merge_state_status }}</p></div>
+      <div class="summary-item"><p class="summary-label">Author</p><p class="summary-value">{{ conversation.detail.author }}</p></div>
+      <div class="summary-item"><p class="summary-label">Created</p><p class="summary-value">{{ model.formatted_created_at(conversation.detail) }}</p></div>
+      <div class="summary-item"><p class="summary-label">Updated</p><p class="summary-value">{{ model.formatted_updated_at(conversation.detail) }}</p></div>
+      <div class="summary-item"><p class="summary-label">Base</p><p class="summary-value"><code>{{ conversation.detail.base_ref_name }}</code></p></div>
+      <div class="summary-item"><p class="summary-label">Head</p><p class="summary-value"><code>{{ conversation.detail.head_ref_name }}</code></p></div>
+      <div class="summary-item"><p class="summary-label">Mergeable</p><p class="summary-value">{{ conversation.detail.mergeable }}</p></div>
+    </div>
     {% if let Some(explainer) = model.merge_state_explainer(conversation.detail) %}
-    <p>{{ explainer }}</p>
+    <div class="panel-pad">
+      <p class="text-muted">{{ explainer }}</p>
+    </div>
     {% endif %}
   </section>
+  {% else %}
+  <section class="panel loading-box">
+    <span class="global-status-spinner" aria-hidden="true"></span>
+  </section>
+  {% endif %}
 
-  <section>
-    <h2>Actions</h2>
-    <form method="post" action="{{ model.state_post_path }}" data-status-message="Updating pull request">
-        {% if model.is_open(conversation.detail) %}
-        <button type="submit" name="state" value="close" data-status-message="Closing pull request" data-loading-label="Closing">Close PR</button>
-        {% endif %}
-        {% if model.is_closed(conversation.detail) %}
-        <button type="submit" name="state" value="reopen" data-status-message="Reopening pull request" data-loading-label="Reopening">Reopen PR</button>
-        {% endif %}
-        {% if conversation.detail.is_draft %}
-        <button type="submit" name="state" value="ready" data-status-message="Marking pull request ready" data-loading-label="Marking ready">Mark Ready</button>
-        {% endif %}
-      </form>
-</section>
-{% else %}
-<section>
-  <p>Loading pull request details...</p>
-</section>
-{% endif %}
+  {% if let Some(flash) = model.flash %}
+  <section class="panel panel-pad" role="status">
+    <p>{{ flash.message }}</p>
+  </section>
+  {% endif %}
 
-{% if let Some(flash) = model.flash %}
-<section role="status">
-  <p>{{ flash.message }}</p>
-</section>
-{% endif %}
-
-<section>
-  <h2>Sections</h2>
-  <nav aria-label="Pull request sections">
-    <ul>
-    {% for tab in model.tabs %}
-    <li><a href="{{ tab.href }}">{{ tab.label }}{% if tab.selected %} (current){% endif %}</a></li>
-    {% endfor %}
-    </ul>
-  </nav>
-</section>
-
-<section>
-  <section>
-    {% if model.conversation.value.is_none() %}
-    <p>Loading conversation...</p>
-    {% else if model.body_html.is_empty() %}
-    <section>
-      <h2>Description</h2>
-      <p>No PR description.</p>
-    </section>
-    {% else %}
-    <section>
-      <h2>Description</h2>
-      <article>{{ model.body_html|safe }}</article>
-    </section>
-    {% endif %}
-
-    {% if model.conversation.value.is_some() %}
-    <section>
-      <h2>Conversation</h2>
-      {% for item in model.conversation_feed %}
-      <article>
-        <h3>{{ item.kind_label }}</h3>
-        <dl>
-          <dt>Author</dt>
-          <dd>{{ item.author }}</dd>
-          {% if !item.context_label.is_empty() %}
-          <dt>Context</dt>
-          <dd>{{ item.context_label }}</dd>
-          {% endif %}
-          <dt>Time</dt>
-          <dd>{{ item.timestamp }}</dd>
-          <dt>GitHub</dt>
-          <dd><a href="{{ item.url }}">Open on GitHub</a></dd>
-        </dl>
-        <div>{{ item.body_html|safe }}</div>
-      </article>
+  <section class="panel panel-pad">
+    <nav aria-label="Pull request sections" class="section-nav">
+      {% for tab in model.tabs %}
+      <a href="{{ tab.href }}">{{ tab.label }}{% if tab.selected %} (current){% endif %}</a>
       {% endfor %}
-      {% if model.conversation_feed.is_empty() %}
-      <p>No conversation yet.</p>
-      {% endif %}
-    </section>
-    {% endif %}
+    </nav>
+  </section>
 
-    <section>
-      <h2>Comment</h2>
-      <article>
-        <form method="post" action="{{ model.comment_post_path }}" data-status-message="Posting comment">
+  <section class="content-grid">
+    <div class="page-stack">
+      <section class="panel panel-pad">
+        {% if model.conversation.value.is_none() %}
+        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% else if model.body_html.is_empty() %}
+        <p>No PR description.</p>
+        {% else %}
+        <article class="stack-compact">{{ model.body_html|safe }}</article>
+        {% endif %}
+      </section>
+
+      <section class="panel panel-pad">
+        {% if model.conversation.value.is_none() %}
+        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% else if model.conversation_feed.is_empty() %}
+        <p>No conversation yet.</p>
+        {% else %}
+        <div class="stack-compact">
+          {% for item in model.conversation_feed %}
+          <article class="feed-item stack-compact">
+            <div class="meta-inline">
+              <span>{{ item.kind_label }}</span>
+              <span>{{ item.author }}</span>
+              {% if !item.context_label.is_empty() %}<span>{{ item.context_label }}</span>{% endif %}
+              <span>{{ item.timestamp }}</span>
+              <a href="{{ item.url }}">GitHub</a>
+            </div>
+            <div>{{ item.body_html|safe }}</div>
+          </article>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </section>
+
+      <section class="panel panel-pad">
+        <form method="post" action="{{ model.comment_post_path }}" data-status-message="Posting comment" class="field-stack">
           <label for="comment-body">Comment body</label>
           <textarea id="comment-body" name="body" rows="6" required></textarea>
-          <button type="submit" data-loading-label="Posting comment">Post Comment</button>
+          <div class="control-row">
+            <button type="submit" data-loading-label="Posting comment">Post Comment</button>
+          </div>
         </form>
-      </article>
-    </section>
+      </section>
 
-    <section>
-      <h2>Review</h2>
-      <article>
-        <form method="post" action="{{ model.review_post_path }}" data-status-message="Submitting review">
+      <section class="panel panel-pad">
+        <form method="post" action="{{ model.review_post_path }}" data-status-message="Submitting review" class="field-stack">
           <label for="review-body">Review body</label>
           <textarea id="review-body" name="body" rows="6" required></textarea>
-          <button type="submit" name="event" value="approve" data-status-message="Submitting approval" data-loading-label="Approving">Approve</button>
-          <button type="submit" name="event" value="comment" data-status-message="Submitting review comment" data-loading-label="Submitting comment">Comment</button>
-          <button type="submit" name="event" value="request_changes" data-status-message="Requesting changes" data-loading-label="Requesting changes">Request changes</button>
+          <div class="control-row">
+            <button type="submit" name="event" value="approve" data-status-message="Submitting approval" data-loading-label="Approving">Approve</button>
+            <button type="submit" name="event" value="comment" data-status-message="Submitting review comment" data-loading-label="Submitting comment">Comment</button>
+            <button type="submit" name="event" value="request_changes" data-status-message="Requesting changes" data-loading-label="Requesting changes">Request changes</button>
+          </div>
         </form>
-      </article>
-    </section>
-  </section>
+      </section>
+    </div>
 
-  <aside>
-    <section>
-      <h2>Reviewers</h2>
-      {% if model.conversation.value.is_none() %}
-      <p>Loading reviewers...</p>
-      {% else if model.reviewer_statuses.is_empty() %}
-      <p>No reviewers.</p>
-      {% else %}
-      <ul>
-      {% for reviewer in model.reviewer_statuses %}
-      <li>
-        <p><strong>{{ reviewer.reviewer }}</strong></p>
-        <dl>
-          <dt>State</dt>
-          <dd>{{ reviewer.state }}</dd>
-          <dt>Submitted</dt>
-          <dd>{{ reviewer.submitted_at }}</dd>
-        </dl>
-      </li>
-      {% endfor %}
-      </ul>
-      {% endif %}
-    </section>
-
-    <section>
-      <h2>Add Reviewers</h2>
-      <form id="reviewers-form" method="post" action="{{ model.reviewers_post_path }}" data-status-message="Updating reviewers">
-        <label for="reviewers-input">Add reviewers</label>
-        <select id="reviewers-input" name="reviewers" multiple size="6" data-auto-submit="true">
-          {% for reviewer in model.reviewer_options %}
-          <option value="{{ reviewer }}">{{ reviewer }}</option>
+    <aside class="page-stack">
+      <section class="panel panel-pad">
+        <div class="panel-head">
+          <div></div>
+          <div class="panel-head-actions">
+            <details class="popover-shell">
+              <summary class="popover-trigger popover-trigger-compact">Add reviewers</summary>
+              <div class="popover-panel popover-panel-right">
+                <form id="reviewers-form" method="post" action="{{ model.reviewers_post_path }}" data-status-message="Updating reviewers" class="field-stack">
+                  <label for="reviewers-input">Add reviewers</label>
+                  <select id="reviewers-input" name="reviewers" multiple size="6" data-auto-submit="true">
+                    {% for reviewer in model.reviewer_options %}
+                    <option value="{{ reviewer }}">{{ reviewer }}</option>
+                    {% endfor %}
+                  </select>
+                </form>
+              </div>
+            </details>
+          </div>
+        </div>
+        {% if model.conversation.value.is_none() %}
+        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% else if model.reviewer_statuses.is_empty() %}
+        <p>No reviewers.</p>
+        {% else %}
+        <div class="plain-list">
+          {% for reviewer in model.reviewer_statuses %}
+          <article class="stack-compact">
+            <p><strong>{{ reviewer.reviewer }}</strong></p>
+            <div class="meta-inline">
+              <span>{{ reviewer.state }}</span>
+              <span>{{ reviewer.submitted_at }}</span>
+            </div>
+          </article>
           {% endfor %}
-        </select>
-      </form>
-    </section>
+        </div>
+        {% endif %}
+      </section>
 
-    <section>
-      <h2>Checks</h2>
-      {% if let Some(conversation) = model.conversation.value %}
-      <p>{{ model.checks.headline }}</p>
-      <p>Successful: {{ model.checks.successful_pct }}% · Failed: {{ model.checks.failed_pct }}% · Pending: {{ model.checks.pending_pct }}% · Neutral: {{ model.checks.neutral_pct }}%</p>
-      <ul>
-        {% for job in model.checks.jobs %}
-        <li>
-          {{ job.name }} — {{ job.state }}
-        </li>
-        {% endfor %}
-      </ul>
-    </section>
+      <section class="panel panel-pad">
+        {% if let Some(conversation) = model.conversation.value %}
+        <div class="stack-compact">
+          <p>{{ model.checks.headline }}</p>
+          <p class="text-muted">Successful: {{ model.checks.successful_pct }}% · Failed: {{ model.checks.failed_pct }}% · Pending: {{ model.checks.pending_pct }}% · Neutral: {{ model.checks.neutral_pct }}%</p>
+          <div class="sidebar-list">
+            {% for job in model.checks.jobs %}
+            <p>{{ job.name }} — {{ job.state }}</p>
+            {% endfor %}
+          </div>
+        </div>
+        {% else %}
+        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% endif %}
+      </section>
 
-    <section>
-      <h2>Merge</h2>
-      <form method="post" action="{{ model.merge_post_path }}" data-status-message="Merging">
-        <label for="merge-method">Merge</label>
-        <select id="merge-method" name="method">
-          <option value="merge" selected>Merge commit</option>
-          <option value="squash">Squash and merge</option>
-          <option value="rebase">Rebase and merge</option>
-        </select>
-        <label><input type="checkbox" name="delete_branch" /> Delete branch</label>
-        <button type="submit" data-loading-label="Merging" {% if model.merge_button_disabled(conversation.detail) %}disabled{% endif %}>{{ model.merge_button_label(conversation.detail) }}</button>
-        <p>{{ model.merge_button_reason(conversation.detail) }}</p>
-      </form>
-      {% else %}
-      <p>Loading checks and merge controls...</p>
-      {% endif %}
-    </section>
-  </aside>
-</section>
+      <section class="panel panel-pad">
+        {% if let Some(conversation) = model.conversation.value %}
+        <form method="post" action="{{ model.merge_post_path }}" data-status-message="Merging" class="field-stack">
+          <label for="merge-method">Merge</label>
+          <select id="merge-method" name="method">
+            <option value="merge" selected>Merge commit</option>
+            <option value="squash">Squash and merge</option>
+            <option value="rebase">Rebase and merge</option>
+          </select>
+          <label><input type="checkbox" name="delete_branch" /> Delete branch</label>
+          <div class="control-row">
+            <button type="submit" data-loading-label="Merging" {% if model.merge_button_disabled(conversation.detail) %}disabled{% endif %}>{{ model.merge_button_label(conversation.detail) }}</button>
+          </div>
+          <p class="text-muted">{{ model.merge_button_reason(conversation.detail) }}</p>
+        </form>
+        {% else %}
+        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% endif %}
+      </section>
+    </aside>
+  </section>
+</div>
