@@ -49,9 +49,9 @@
 </div>
 {% endif %}
 
-<footer>
+<footer class="mx-auto py-4 px-2 w-full text-center">
   {% if model.has_results_limit_warning() %}
-  <p>Some results may be hidden.</p>
+  <p>100+ results</p>
   {% else %}
   <p>{{ model.row_count() }} results</p>
   {% endif %}
