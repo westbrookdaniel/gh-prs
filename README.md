@@ -15,6 +15,24 @@ Local-first web UI for GitHub pull requests, built with Rust, a custom `smol` HT
 cargo run -- --port 3000
 ```
 
+## Dev Watch
+
+Use `bacon` to restart the server whenever Rust sources, Askama templates, or assets change:
+
+```bash
+cargo install --locked bacon
+bacon dev
+```
+
+The project includes `bacon.toml`, which watches `src/`, `templates/`, `assets/`, `Cargo.toml`, and `Cargo.lock`, then kills and reruns `cargo run -- --port 3000` on change.
+
+You can also use Bacon's built-in Rust jobs for quick feedback without running the server:
+
+```bash
+bacon check
+bacon clippy
+```
+
 Optional flags:
 
 - `--repo OWNER/REPO` (optional startup repo context for metadata/fallback detail routing)

@@ -1,0 +1,9 @@
+default_job = "dev"
+
+[jobs.dev]
+command = ["cargo", "run", "--", "--port", "3000"]
+need_stdout = true
+background = false
+on_change_strategy = "kill_then_restart"
+watch = ["src", "templates", "assets", "Cargo.toml", "Cargo.lock"]
+ignore = ["target", ".git"]

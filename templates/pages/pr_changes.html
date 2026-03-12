@@ -4,7 +4,7 @@
 
 {% block content %}
 <main class="page changes-page page-consistent page-shell" data-refresh-path="{{ model.refresh_path }}" data-needs-refresh="{{ model.needs_refresh }}">
-  <section class="page-refresh-status" data-page-refresh-status aria-live="polite"></section>
+  {% include "components/shared/page_refresh_status.html" %}
   <div id="pr-changes-content">
     {% include "pages/fragments/pr_changes_content.html" %}
   </div>

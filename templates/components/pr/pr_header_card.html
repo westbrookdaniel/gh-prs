@@ -1,0 +1,50 @@
+{% if let Some(header) = model.header %}
+<section class="panel">
+  <div class="panel-pad stack-compact">
+    <div class="panel-head">
+      <div class="stack-compact">
+        <h1>PR #{{ header.number }} · {{ header.title }}</h1>
+      </div>
+      <div class="panel-head-actions">
+        <details class="popover-shell">
+          <summary class="popover-trigger popover-trigger-icon">...</summary>
+          <div class="popover-panel popover-panel-right">
+            <form method="post" action="{{ model.state_post_path }}" data-status-message="Updating pull request" class="field-stack">
+              <a href="{{ header.url }}">Open on GitHub</a>
+              {% if header.can_close %}
+              <button type="submit" name="state" value="close" data-status-message="Closing pull request" data-loading-label="Closing">Close PR</button>
+              {% endif %}
+              {% if header.can_reopen %}
+              <button type="submit" name="state" value="reopen" data-status-message="Reopening pull request" data-loading-label="Reopening">Reopen PR</button>
+              {% endif %}
+              {% if header.can_mark_ready %}
+              <button type="submit" name="state" value="ready" data-status-message="Marking pull request ready" data-loading-label="Marking ready">Mark Ready</button>
+              {% endif %}
+            </form>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+  <div class="summary-grid">
+    <div class="summary-item"><p class="summary-label">Pull Request</p><p class="summary-value">#{{ header.number }}</p></div>
+    <div class="summary-item"><p class="summary-label">Repository</p><p class="summary-value"><a href="{{ header.repo_url }}">{{ header.repo_name_with_owner }}</a></p></div>
+    <div class="summary-item"><p class="summary-label">State</p><p class="summary-value">{{ header.state_label }}{% if header.is_draft %} · Draft{% endif %}</p></div>
+    <div class="summary-item"><p class="summary-label">Review</p><p class="summary-value">{{ header.review_decision }}</p></div>
+    <div class="summary-item"><p class="summary-label">Merge</p><p class="summary-value">{{ header.merge_state_status }}</p></div>
+    <div class="summary-item"><p class="summary-label">Author</p><p class="summary-value">{{ header.author }}</p></div>
+    <div class="summary-item"><p class="summary-label">Created</p><p class="summary-value">{{ header.created_at }}</p></div>
+    <div class="summary-item"><p class="summary-label">Updated</p><p class="summary-value">{{ header.updated_at }}</p></div>
+    <div class="summary-item"><p class="summary-label">Base</p><p class="summary-value"><code>{{ header.base_ref_name }}</code></p></div>
+    <div class="summary-item"><p class="summary-label">Head</p><p class="summary-value"><code>{{ header.head_ref_name }}</code></p></div>
+    <div class="summary-item"><p class="summary-label">Mergeable</p><p class="summary-value">{{ header.mergeable }}</p></div>
+  </div>
+  {% if let Some(explainer) = header.merge_state_explainer %}
+  <div class="panel-pad">
+    <p class="text-muted">{{ explainer }}</p>
+  </div>
+  {% endif %}
+</section>
+{% else %}
+{% include "components/shared/loading_panel.html" %}
+{% endif %}

@@ -1,76 +1,15 @@
 <div class="page-stack">
-  {% if let Some(conversation) = model.conversation.value %}
-  <section class="panel">
-    <div class="panel-pad stack-compact">
-      <div class="panel-head">
-        <div class="stack-compact">
-          <h1>PR #{{ conversation.detail.number }} · {{ conversation.detail.title }}</h1>
-        </div>
-        <div class="panel-head-actions">
-          <details class="popover-shell">
-            <summary class="popover-trigger popover-trigger-icon">...</summary>
-            <div class="popover-panel popover-panel-right">
-              <form method="post" action="{{ model.state_post_path }}" data-status-message="Updating pull request" class="field-stack">
-                <a href="{{ conversation.detail.url }}">Open on GitHub</a>
-                {% if model.is_open(conversation.detail) %}
-                <button type="submit" name="state" value="close" data-status-message="Closing pull request" data-loading-label="Closing">Close PR</button>
-                {% endif %}
-                {% if model.is_closed(conversation.detail) %}
-                <button type="submit" name="state" value="reopen" data-status-message="Reopening pull request" data-loading-label="Reopening">Reopen PR</button>
-                {% endif %}
-                {% if conversation.detail.is_draft %}
-                <button type="submit" name="state" value="ready" data-status-message="Marking pull request ready" data-loading-label="Marking ready">Mark Ready</button>
-                {% endif %}
-              </form>
-            </div>
-          </details>
-        </div>
-      </div>
-    </div>
-    <div class="summary-grid">
-      <div class="summary-item"><p class="summary-label">Pull Request</p><p class="summary-value">#{{ conversation.detail.number }}</p></div>
-      <div class="summary-item"><p class="summary-label">Repository</p><p class="summary-value"><a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a></p></div>
-      <div class="summary-item"><p class="summary-label">State</p><p class="summary-value">{{ model.state_label(conversation.detail) }}{% if conversation.detail.is_draft %} · Draft{% endif %}</p></div>
-      <div class="summary-item"><p class="summary-label">Review</p><p class="summary-value">{{ model.review_decision(conversation.detail) }}</p></div>
-      <div class="summary-item"><p class="summary-label">Merge</p><p class="summary-value">{{ conversation.detail.merge_state_status }}</p></div>
-      <div class="summary-item"><p class="summary-label">Author</p><p class="summary-value">{{ conversation.detail.author }}</p></div>
-      <div class="summary-item"><p class="summary-label">Created</p><p class="summary-value">{{ model.formatted_created_at(conversation.detail) }}</p></div>
-      <div class="summary-item"><p class="summary-label">Updated</p><p class="summary-value">{{ model.formatted_updated_at(conversation.detail) }}</p></div>
-      <div class="summary-item"><p class="summary-label">Base</p><p class="summary-value"><code>{{ conversation.detail.base_ref_name }}</code></p></div>
-      <div class="summary-item"><p class="summary-label">Head</p><p class="summary-value"><code>{{ conversation.detail.head_ref_name }}</code></p></div>
-      <div class="summary-item"><p class="summary-label">Mergeable</p><p class="summary-value">{{ conversation.detail.mergeable }}</p></div>
-    </div>
-    {% if let Some(explainer) = model.merge_state_explainer(conversation.detail) %}
-    <div class="panel-pad">
-      <p class="text-muted">{{ explainer }}</p>
-    </div>
-    {% endif %}
-  </section>
-  {% else %}
-  <section class="panel loading-box">
-    <span class="global-status-spinner" aria-hidden="true"></span>
-  </section>
-  {% endif %}
+  {% include "components/pr/pr_header_card.html" %}
 
-  {% if let Some(flash) = model.flash %}
-  <section class="panel panel-pad" role="status">
-    <p>{{ flash.message }}</p>
-  </section>
-  {% endif %}
+  {% include "components/shared/flash_banner.html" %}
 
-  <section class="panel panel-pad">
-    <nav aria-label="Pull request sections" class="section-nav">
-      {% for tab in model.tabs %}
-      <a href="{{ tab.href }}">{{ tab.label }}{% if tab.selected %} (current){% endif %}</a>
-      {% endfor %}
-    </nav>
-  </section>
+  {% include "components/pr/pr_section_tabs.html" %}
 
   <section class="content-grid">
     <div class="page-stack">
       <section class="panel panel-pad">
         {% if model.conversation.value.is_none() %}
-        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% include "components/shared/loading_panel.html" %}
         {% else if model.body_html.is_empty() %}
         <p>No PR description.</p>
         {% else %}
@@ -80,7 +19,7 @@
 
       <section class="panel panel-pad">
         {% if model.conversation.value.is_none() %}
-        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% include "components/shared/loading_panel.html" %}
         {% else if model.conversation_feed.is_empty() %}
         <p>No conversation yet.</p>
         {% else %}
@@ -145,7 +84,7 @@
           </div>
         </div>
         {% if model.conversation.value.is_none() %}
-        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% include "components/shared/loading_panel.html" %}
         {% else if model.reviewer_statuses.is_empty() %}
         <p>No reviewers.</p>
         {% else %}
@@ -164,7 +103,7 @@
       </section>
 
       <section class="panel panel-pad">
-        {% if let Some(conversation) = model.conversation.value %}
+        {% if model.conversation.value.is_some() %}
         <div class="stack-compact">
           <p>{{ model.checks.headline }}</p>
           <p class="text-muted">Successful: {{ model.checks.successful_pct }}% · Failed: {{ model.checks.failed_pct }}% · Pending: {{ model.checks.pending_pct }}% · Neutral: {{ model.checks.neutral_pct }}%</p>
@@ -175,12 +114,12 @@
           </div>
         </div>
         {% else %}
-        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% include "components/shared/loading_panel.html" %}
         {% endif %}
       </section>
 
       <section class="panel panel-pad">
-        {% if let Some(conversation) = model.conversation.value %}
+        {% if let Some(header) = model.header %}
         <form method="post" action="{{ model.merge_post_path }}" data-status-message="Merging" class="field-stack">
           <label for="merge-method">Merge</label>
           <select id="merge-method" name="method">
@@ -190,12 +129,12 @@
           </select>
           <label><input type="checkbox" name="delete_branch" /> Delete branch</label>
           <div class="control-row">
-            <button type="submit" data-loading-label="Merging" {% if model.merge_button_disabled(conversation.detail) %}disabled{% endif %}>{{ model.merge_button_label(conversation.detail) }}</button>
+            <button type="submit" data-loading-label="Merging" {% if model.merge_button_disabled(header) %}disabled{% endif %}>{{ model.merge_button_label(header) }}</button>
           </div>
-          <p class="text-muted">{{ model.merge_button_reason(conversation.detail) }}</p>
+          <p class="text-muted">{{ model.merge_button_reason(header) }}</p>
         </form>
         {% else %}
-        <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+        {% include "components/shared/loading_panel.html" %}
         {% endif %}
       </section>
     </aside>

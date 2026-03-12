@@ -180,6 +180,29 @@ pub struct DiffTreeItemView {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrHeaderViewModel {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub repo_name_with_owner: String,
+    pub repo_url: String,
+    pub state_label: String,
+    pub review_decision: String,
+    pub merge_state_status: String,
+    pub author: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub base_ref_name: String,
+    pub head_ref_name: String,
+    pub mergeable: String,
+    pub is_draft: bool,
+    pub can_close: bool,
+    pub can_reopen: bool,
+    pub can_mark_ready: bool,
+    pub merge_state_explainer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrListPageModel {
     pub page_title: String,
     pub refresh_path: String,
@@ -250,6 +273,7 @@ pub struct PrDetailPageModel {
     pub needs_refresh: bool,
     pub repo: crate::gh::models::RepoContext,
     pub conversation: Loadable<PullRequestConversation>,
+    pub header: Option<PrHeaderViewModel>,
     pub reviewer_statuses: Vec<ReviewerStatusView>,
     pub reviewer_options: Vec<String>,
     pub checks: ChecksSummaryView,
@@ -266,55 +290,39 @@ pub struct PrDetailPageModel {
 }
 
 impl PrDetailPageModel {
-    pub fn state_label(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::state_label(detail.state.clone(), detail.is_draft)
-    }
-
-    pub fn formatted_created_at(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::format_timestamp(&detail.created_at)
-    }
-
-    pub fn formatted_updated_at(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::format_timestamp(&detail.updated_at)
-    }
-
-    pub fn merge_state_explainer(&self, detail: &PullRequestDetail) -> Option<String> {
-        super::helpers::merge_state_explainer(&detail.merge_state_status)
-    }
-
-    pub fn review_decision<'a>(&self, detail: &'a PullRequestDetail) -> &'a str {
-        detail.review_decision.as_deref().unwrap_or("NONE")
-    }
-
-    pub fn is_open(&self, detail: &PullRequestDetail) -> bool {
-        detail.state.eq_ignore_ascii_case("OPEN")
-    }
-
-    pub fn is_closed(&self, detail: &PullRequestDetail) -> bool {
-        detail.state.eq_ignore_ascii_case("CLOSED")
-    }
-
-    pub fn merge_button_label(&self, detail: &PullRequestDetail) -> String {
-        let (_, label, _, _) = self.merge_button(detail);
+    pub fn merge_button_label(&self, header: &PrHeaderViewModel) -> String {
+        let (_, label, _, _) = self.merge_button(header);
         label
     }
 
-    pub fn merge_button_reason(&self, detail: &PullRequestDetail) -> String {
-        let (_, _, reason, _) = self.merge_button(detail);
+    pub fn merge_button_reason(&self, header: &PrHeaderViewModel) -> String {
+        let (_, _, reason, _) = self.merge_button(header);
         reason
     }
 
-    pub fn merge_button_disabled(&self, detail: &PullRequestDetail) -> bool {
-        let (_, _, _, disabled) = self.merge_button(detail);
+    pub fn merge_button_disabled(&self, header: &PrHeaderViewModel) -> bool {
+        let (_, _, _, disabled) = self.merge_button(header);
         disabled
     }
 
-    fn merge_button(&self, detail: &PullRequestDetail) -> (String, String, String, bool) {
-        let has_failing_checks = detail.checks.failed > 0;
-        let has_pending_checks = detail.checks.pending > 0;
-        let mergeable_clean = detail.mergeable.eq_ignore_ascii_case("MERGEABLE");
+    fn merge_button(&self, header: &PrHeaderViewModel) -> (String, String, String, bool) {
+        let conversation = match self.conversation.value.as_ref() {
+            Some(conversation) => conversation,
+            None => {
+                return (
+                    "secondary".to_string(),
+                    "Loading".to_string(),
+                    "Pull request details are still loading".to_string(),
+                    true,
+                )
+            }
+        };
 
-        if !self.is_open(detail) {
+        let has_failing_checks = conversation.detail.checks.failed > 0;
+        let has_pending_checks = conversation.detail.checks.pending > 0;
+        let mergeable_clean = header.mergeable.eq_ignore_ascii_case("MERGEABLE");
+
+        if header.can_reopen {
             (
                 "secondary".to_string(),
                 "Cannot Merge".to_string(),
@@ -360,6 +368,7 @@ pub struct PrChangesPageModel {
     pub needs_refresh: bool,
     pub repo: crate::gh::models::RepoContext,
     pub detail: Loadable<PullRequestDetail>,
+    pub header: Option<PrHeaderViewModel>,
     pub files: Loadable<Vec<PullRequestFile>>,
     pub rendered_files: Vec<DiffFileView>,
     pub tree_items: Vec<DiffTreeItemView>,
@@ -369,35 +378,7 @@ pub struct PrChangesPageModel {
     pub tabs: Vec<DetailTabView>,
 }
 
-impl PrChangesPageModel {
-    pub fn state_label(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::state_label(detail.state.clone(), detail.is_draft)
-    }
-
-    pub fn is_open(&self, detail: &PullRequestDetail) -> bool {
-        detail.state.eq_ignore_ascii_case("OPEN")
-    }
-
-    pub fn is_closed(&self, detail: &PullRequestDetail) -> bool {
-        detail.state.eq_ignore_ascii_case("CLOSED")
-    }
-
-    pub fn review_decision<'a>(&self, detail: &'a PullRequestDetail) -> &'a str {
-        detail.review_decision.as_deref().unwrap_or("NONE")
-    }
-
-    pub fn formatted_created_at(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::format_timestamp(&detail.created_at)
-    }
-
-    pub fn formatted_updated_at(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::format_timestamp(&detail.updated_at)
-    }
-
-    pub fn merge_state_explainer(&self, detail: &PullRequestDetail) -> Option<String> {
-        super::helpers::merge_state_explainer(&detail.merge_state_status)
-    }
-}
+impl PrChangesPageModel {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorPageModel {
@@ -474,6 +455,36 @@ pub fn checks_view(summary: StatusChecksSummary) -> ChecksSummaryView {
         headline_icon_src,
         headline_tooltip,
         jobs: check_jobs_view(summary.jobs),
+    }
+}
+
+pub fn pr_header_view(
+    repo: &crate::gh::models::RepoContext,
+    detail: &PullRequestDetail,
+) -> PrHeaderViewModel {
+    PrHeaderViewModel {
+        number: detail.number,
+        title: detail.title.clone(),
+        url: detail.url.clone(),
+        repo_name_with_owner: repo.name_with_owner.clone(),
+        repo_url: repo.url.clone(),
+        state_label: super::helpers::state_label(detail.state.clone(), detail.is_draft),
+        review_decision: detail
+            .review_decision
+            .clone()
+            .unwrap_or_else(|| "NONE".to_string()),
+        merge_state_status: detail.merge_state_status.clone(),
+        author: detail.author.clone(),
+        created_at: super::helpers::format_timestamp(&detail.created_at),
+        updated_at: super::helpers::format_timestamp(&detail.updated_at),
+        base_ref_name: detail.base_ref_name.clone(),
+        head_ref_name: detail.head_ref_name.clone(),
+        mergeable: detail.mergeable.clone(),
+        is_draft: detail.is_draft,
+        can_close: detail.state.eq_ignore_ascii_case("OPEN"),
+        can_reopen: detail.state.eq_ignore_ascii_case("CLOSED"),
+        can_mark_ready: detail.is_draft,
+        merge_state_explainer: super::helpers::merge_state_explainer(&detail.merge_state_status),
     }
 }
 

@@ -10,8 +10,9 @@ use crate::views::helpers::{
     review_state_tone, sort_controls, with_query,
 };
 use crate::views::types::{
-    checks_view, ErrorPageModel, FlashMessageView, IssueCommentView, Loadable, PrChangesPageModel,
-    PrDetailPageModel, PrListPageModel, PullRequestReviewView, ReviewCommentView,
+    checks_view, pr_header_view, ErrorPageModel, FlashMessageView, IssueCommentView, Loadable,
+    PrChangesPageModel, PrDetailPageModel, PrListPageModel, PullRequestReviewView,
+    ReviewCommentView,
 };
 
 pub struct ListPageModelInput<'a> {
@@ -56,7 +57,7 @@ pub fn detail_page_model(
 ) -> PrDetailPageModel {
     let query = SearchArgs::from_request(request).to_query_string();
 
-    let (reviewer_statuses, reviewer_options, checks, body_html, conversation_feed) =
+    let (header, reviewer_statuses, reviewer_options, checks, body_html, conversation_feed) =
         if let Some(conversation_value) = conversation.value.as_ref() {
             let requested_reviewers = conversation_value.detail.requested_reviewers.clone();
             let reviewer_statuses = build_reviewer_statuses(
@@ -79,6 +80,7 @@ pub fn detail_page_model(
             );
 
             (
+                Some(pr_header_view(repo, &conversation_value.detail)),
                 reviewer_statuses,
                 reviewer_options,
                 checks_view(conversation_value.detail.checks.clone()),
@@ -87,6 +89,7 @@ pub fn detail_page_model(
             )
         } else {
             (
+                None,
                 Vec::new(),
                 Vec::new(),
                 checks_view(crate::gh::models::StatusChecksSummary::default()),
@@ -101,6 +104,7 @@ pub fn detail_page_model(
         needs_refresh,
         repo: repo.clone(),
         conversation,
+        header,
         reviewer_statuses,
         reviewer_options,
         checks,
@@ -147,6 +151,10 @@ pub fn changes_page_model(
         .clone()
         .map(diff_files_view)
         .unwrap_or_else(|| (Vec::new(), Vec::new()));
+    let header = detail
+        .value
+        .as_ref()
+        .map(|detail| pr_header_view(repo, detail));
 
     PrChangesPageModel {
         page_title: format!("PR #{number} Changes"),
@@ -154,6 +162,7 @@ pub fn changes_page_model(
         needs_refresh,
         repo: repo.clone(),
         detail,
+        header,
         files,
         rendered_files,
         tree_items,

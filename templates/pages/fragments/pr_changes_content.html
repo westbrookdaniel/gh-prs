@@ -1,75 +1,14 @@
 <div class="page-stack">
-  {% if let Some(detail) = model.detail.value %}
-  <section class="panel">
-    <div class="panel-pad stack-compact">
-      <div class="panel-head">
-        <div class="stack-compact">
-          <h1>PR #{{ detail.number }} · {{ detail.title }}</h1>
-        </div>
-        <div class="panel-head-actions">
-          <details class="popover-shell">
-            <summary class="popover-trigger popover-trigger-icon">...</summary>
-            <div class="popover-panel popover-panel-right">
-              <form method="post" action="{{ model.state_post_path }}" data-status-message="Updating pull request" class="field-stack">
-                <a href="{{ detail.url }}">Open on GitHub</a>
-                {% if model.is_open(detail) %}
-                <button type="submit" name="state" value="close" data-status-message="Closing pull request" data-loading-label="Closing">Close PR</button>
-                {% endif %}
-                {% if model.is_closed(detail) %}
-                <button type="submit" name="state" value="reopen" data-status-message="Reopening pull request" data-loading-label="Reopening">Reopen PR</button>
-                {% endif %}
-                {% if detail.is_draft %}
-                <button type="submit" name="state" value="ready" data-status-message="Marking pull request ready" data-loading-label="Marking ready">Mark Ready</button>
-                {% endif %}
-              </form>
-            </div>
-          </details>
-        </div>
-      </div>
-    </div>
-    <div class="summary-grid">
-      <div class="summary-item"><p class="summary-label">Pull Request</p><p class="summary-value">#{{ detail.number }}</p></div>
-      <div class="summary-item"><p class="summary-label">Repository</p><p class="summary-value"><a href="{{ model.repo.url }}">{{ model.repo.name_with_owner }}</a></p></div>
-      <div class="summary-item"><p class="summary-label">State</p><p class="summary-value">{{ model.state_label(detail) }}{% if detail.is_draft %} · Draft{% endif %}</p></div>
-      <div class="summary-item"><p class="summary-label">Review</p><p class="summary-value">{{ model.review_decision(detail) }}</p></div>
-      <div class="summary-item"><p class="summary-label">Merge</p><p class="summary-value">{{ detail.merge_state_status }}</p></div>
-      <div class="summary-item"><p class="summary-label">Author</p><p class="summary-value">{{ detail.author }}</p></div>
-      <div class="summary-item"><p class="summary-label">Created</p><p class="summary-value">{{ model.formatted_created_at(detail) }}</p></div>
-      <div class="summary-item"><p class="summary-label">Updated</p><p class="summary-value">{{ model.formatted_updated_at(detail) }}</p></div>
-      <div class="summary-item"><p class="summary-label">Base</p><p class="summary-value"><code>{{ detail.base_ref_name }}</code></p></div>
-      <div class="summary-item"><p class="summary-label">Head</p><p class="summary-value"><code>{{ detail.head_ref_name }}</code></p></div>
-      <div class="summary-item"><p class="summary-label">Mergeable</p><p class="summary-value">{{ detail.mergeable }}</p></div>
-    </div>
-    {% if let Some(explainer) = model.merge_state_explainer(detail) %}
-    <div class="panel-pad">
-      <p class="text-muted">{{ explainer }}</p>
-    </div>
-    {% endif %}
-  </section>
-  {% else %}
-  <section class="panel loading-box">
-    <span class="global-status-spinner" aria-hidden="true"></span>
-  </section>
-  {% endif %}
+  {% include "components/pr/pr_header_card.html" %}
 
-  {% if let Some(flash) = model.flash %}
-  <section class="panel panel-pad" role="status">
-    <p>{{ flash.message }}</p>
-  </section>
-  {% endif %}
+  {% include "components/shared/flash_banner.html" %}
 
-  <section class="panel panel-pad">
-    <nav aria-label="Pull request sections" class="section-nav">
-      {% for tab in model.tabs %}
-      <a href="{{ tab.href }}">{{ tab.label }}{% if tab.selected %} (current){% endif %}</a>
-      {% endfor %}
-    </nav>
-  </section>
+  {% include "components/pr/pr_section_tabs.html" %}
 
   <section class="content-grid">
     <aside id="diff-file-tree" class="panel panel-pad">
       {% if model.files.value.is_none() %}
-      <div class="loading-box"><span class="global-status-spinner" aria-hidden="true"></span></div>
+      {% include "components/shared/loading_panel.html" %}
       {% else %}
       <div class="sidebar-list">
         {% for item in model.tree_items %}
@@ -83,9 +22,7 @@
 
     <div class="page-stack">
       {% if model.files.value.is_none() %}
-      <section class="panel loading-box">
-        <span class="global-status-spinner" aria-hidden="true"></span>
-      </section>
+      {% include "components/shared/loading_panel.html" %}
       {% else if model.rendered_files.is_empty() %}
       <section class="panel panel-pad"><p>No changed files were returned.</p></section>
       {% endif %}

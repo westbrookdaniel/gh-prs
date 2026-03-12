@@ -1,8 +1,4 @@
-{% if let Some(flash) = model.flash %}
-<section role="status">
-  <p>{{ flash.message }}</p>
-</section>
-{% endif %}
+{% include "components/shared/flash_banner.html" %}
 
 <section>
   <header>

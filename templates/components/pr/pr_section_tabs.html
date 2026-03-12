@@ -1,0 +1,7 @@
+<section class="panel panel-pad">
+  <nav aria-label="Pull request sections" class="section-nav">
+    {% for tab in model.tabs %}
+    <a href="{{ tab.href }}">{{ tab.label }}{% if tab.selected %} (current){% endif %}</a>
+    {% endfor %}
+  </nav>
+</section>

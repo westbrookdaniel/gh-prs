@@ -4,14 +4,7 @@
 {% else %}
 <div class="overflow-x-auto">
   <div class="table-like">
-    <div class="table-like-row grid-cols-pr-list table-like-head" role="row">
-      <div class="table-like-cell" role="columnheader">Repository</div>
-      <div class="table-like-cell" role="columnheader">State</div>
-      <div class="table-like-cell" role="columnheader">Pull Request</div>
-      <div class="table-like-cell" role="columnheader">Author</div>
-      <div class="table-like-cell" role="columnheader">Comments</div>
-      <div class="table-like-cell" role="columnheader">Updated</div>
-    </div>
+    {% include "components/pr/list/results_table_header.html" %}
     {% for row in results %}
     <div class="table-like-row grid-cols-pr-list" role="row">
       <div class="table-like-cell" role="cell">{{ row.repository_name_with_owner }}</div>
@@ -32,14 +25,7 @@
 {% else %}
 <div class="overflow-x-auto">
   <div class="table-like">
-    <div class="table-like-row grid-cols-pr-list table-like-head" role="row">
-      <div class="table-like-cell" role="columnheader">Repository</div>
-      <div class="table-like-cell" role="columnheader">State</div>
-      <div class="table-like-cell" role="columnheader">Pull Request</div>
-      <div class="table-like-cell" role="columnheader">Author</div>
-      <div class="table-like-cell" role="columnheader">Comments</div>
-      <div class="table-like-cell" role="columnheader">Updated</div>
-    </div>
+    {% include "components/pr/list/results_table_header.html" %}
     <div class="table-like-row table-like-row-loading grid-cols-pr-list" role="row">
       <div class="table-like-cell table-like-cell-full table-like-cell-center" role="cell">
         <span class="global-status-spinner" aria-hidden="true"></span>
