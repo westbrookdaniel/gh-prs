@@ -12,10 +12,6 @@ use chrono::{DateTime, Local};
 use pulldown_cmark::{Options, Parser, html};
 use std::collections::HashSet;
 
-pub fn clamp_flash(message: String) -> String {
-    message.chars().take(240).collect()
-}
-
 pub fn state_label(state: String, is_draft: bool) -> String {
     if is_draft {
         format!("{} · DRAFT", state)

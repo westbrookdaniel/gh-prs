@@ -1,14 +1,12 @@
 <div class="page-stack">
   {% include "components/pr/pr_header_card.html" %}
 
-  {% include "components/shared/flash_banner.html" %}
-
   {% include "components/pr/pr_section_tabs.html" %}
 
   <section class="content-grid">
     <div class="page-stack">
       <section class="panel panel-pad">
-        {% if model.conversation.value.is_none() %}
+        {% if model.is_loading %}
         {% include "components/shared/loading_panel.html" %}
         {% else if model.body_html.is_empty() %}
         <p>No PR description.</p>
@@ -18,7 +16,7 @@
       </section>
 
       <section class="panel panel-pad">
-        {% if model.conversation.value.is_none() %}
+        {% if model.is_loading %}
         {% include "components/shared/loading_panel.html" %}
         {% else if model.conversation_feed.is_empty() %}
         <p>No conversation yet.</p>
@@ -81,9 +79,9 @@
                 </form>
               </div>
             </details>
-          </div>
         </div>
-        {% if model.conversation.value.is_none() %}
+      </div>
+        {% if model.is_loading %}
         {% include "components/shared/loading_panel.html" %}
         {% else if model.reviewer_statuses.is_empty() %}
         <p>No reviewers.</p>
@@ -103,7 +101,7 @@
       </section>
 
       <section class="panel panel-pad">
-        {% if model.conversation.value.is_some() %}
+        {% if !model.is_loading %}
         <div class="stack-compact">
           <p>{{ model.checks.headline }}</p>
           <p class="text-muted">Successful: {{ model.checks.successful_pct }}% · Failed: {{ model.checks.failed_pct }}% · Pending: {{ model.checks.pending_pct }}% · Neutral: {{ model.checks.neutral_pct }}%</p>
@@ -119,7 +117,7 @@
       </section>
 
       <section class="panel panel-pad">
-        {% if let Some(header) = model.header %}
+        {% if let Some(merge_button) = model.merge_button %}
         <form method="post" action="{{ model.merge_post_path }}" data-status-message="Merging" class="field-stack">
           <label for="merge-method">Merge</label>
           <select id="merge-method" name="method">
@@ -129,9 +127,9 @@
           </select>
           <label><input type="checkbox" name="delete_branch" /> Delete branch</label>
           <div class="control-row">
-            <button type="submit" data-loading-label="Merging" {% if model.merge_button_disabled(header) %}disabled{% endif %}>{{ model.merge_button_label(header) }}</button>
+            <button type="submit" data-loading-label="Merging" {% if merge_button.disabled %}disabled{% endif %}>{{ merge_button.label }}</button>
           </div>
-          <p class="text-muted">{{ model.merge_button_reason(header) }}</p>
+          <p class="text-muted">{{ merge_button.reason }}</p>
         </form>
         {% else %}
         {% include "components/shared/loading_panel.html" %}

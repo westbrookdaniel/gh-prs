@@ -1,55 +1,9 @@
-use crate::gh::models::{
-    PullRequestConversation, PullRequestDetail, PullRequestFile, PullRequestSearchItem,
-    StatusCheckJob, StatusChecksSummary,
-};
-use crate::search::SearchArgs;
+use crate::gh::models::{PullRequestDetail, PullRequestFile, StatusCheckJob, StatusChecksSummary};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FlashMessageView {
-    pub kind: String,
-    pub message: String,
-}
-
-impl FlashMessageView {
-    pub fn success(message: impl Into<String>) -> Self {
-        Self {
-            kind: "success".to_string(),
-            message: super::helpers::clamp_flash(message.into()),
-        }
-    }
-
-    pub fn error(message: impl Into<String>) -> Self {
-        Self {
-            kind: "error".to_string(),
-            message: super::helpers::clamp_flash(message.into()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Loadable<T> {
-    pub value: Option<T>,
-    pub is_stale: bool,
-}
-
-impl<T> Loadable<T> {
-    pub fn missing() -> Self {
-        Self {
-            value: None,
-            is_stale: false,
-        }
-    }
-
-    pub fn ready(value: T, is_stale: bool) -> Self {
-        Self {
-            value: Some(value),
-            is_stale,
-        }
-    }
-
-    pub fn needs_refresh(&self) -> bool {
-        self.is_stale || self.value.is_none()
-    }
+pub struct RepoOptionView {
+    pub name: String,
+    pub selected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +26,19 @@ pub struct DetailTabView {
     pub label: String,
     pub href: String,
     pub selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListResultRowView {
+    pub repository_name_with_owner: String,
+    pub state_label: String,
+    pub detail_path: String,
+    pub number: u64,
+    pub title: String,
+    pub author: String,
+    pub comment_count: usize,
+    pub updated_at: String,
+    pub updated_at_display: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,67 +170,28 @@ pub struct PrHeaderViewModel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergeButtonView {
+    pub label: String,
+    pub reason: String,
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrListPageModel {
     pub page_title: String,
     pub refresh_path: String,
     pub needs_refresh: bool,
-    pub query: SearchArgs,
-    pub repo_options: Loadable<Vec<String>>,
-    pub results: Loadable<Vec<PullRequestSearchItem>>,
+    pub repo_options: Option<Vec<RepoOptionView>>,
+    pub results: Option<Vec<ListResultRowView>>,
     pub sort_controls: Vec<SortControlView>,
-    pub flash: Option<FlashMessageView>,
     pub tabs: Vec<ListTabView>,
-}
-
-impl PrListPageModel {
-    pub fn row_count(&self) -> usize {
-        self.results.value.as_ref().map_or(0, Vec::len)
-    }
-
-    pub fn has_results_limit_warning(&self) -> bool {
-        self.query.limit >= crate::gh::models::DEFAULT_SEARCH_LIMIT
-            && self.row_count() >= crate::gh::models::DEFAULT_SEARCH_LIMIT
-    }
-
-    pub fn is_repo_selected(&self, repo: &str) -> bool {
-        self.query.repos.iter().any(|value| value == repo)
-    }
-
-    pub fn status_value(&self) -> &str {
-        self.query.status.as_query_value()
-    }
-
-    pub fn sort_value(&self) -> &str {
-        self.query.sort.as_query_value()
-    }
-
-    pub fn order_value(&self) -> &str {
-        self.query.order.as_query_value()
-    }
-
-    pub fn title_value(&self) -> &str {
-        self.query.title.as_deref().unwrap_or_default()
-    }
-
-    pub fn author_value(&self) -> &str {
-        self.query.author.as_deref().unwrap_or_default()
-    }
-
-    pub fn detail_path(&self, item: &PullRequestSearchItem) -> String {
-        super::helpers::detail_path_from_repo(
-            &item.repository_name_with_owner,
-            item.number,
-            self.query.to_query_string().as_deref(),
-        )
-    }
-
-    pub fn state_label(&self, item: &PullRequestSearchItem) -> String {
-        super::helpers::state_label(item.state.clone(), item.is_draft)
-    }
-
-    pub fn formatted_updated_at(&self, item: &PullRequestSearchItem) -> String {
-        super::helpers::format_timestamp(&item.updated_at)
-    }
+    pub title_value: String,
+    pub author_value: String,
+    pub status_value: String,
+    pub sort_value: String,
+    pub order_value: String,
+    pub row_count: usize,
+    pub has_results_limit_warning: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,8 +199,7 @@ pub struct PrDetailPageModel {
     pub page_title: String,
     pub refresh_path: String,
     pub needs_refresh: bool,
-    pub repo: crate::gh::models::RepoContext,
-    pub conversation: Loadable<PullRequestConversation>,
+    pub is_loading: bool,
     pub header: Option<PrHeaderViewModel>,
     pub reviewer_statuses: Vec<ReviewerStatusView>,
     pub reviewer_options: Vec<String>,
@@ -284,81 +211,9 @@ pub struct PrDetailPageModel {
     pub reviewers_post_path: String,
     pub merge_post_path: String,
     pub state_post_path: String,
-    pub flash: Option<FlashMessageView>,
     pub back_to_list_href: String,
     pub tabs: Vec<DetailTabView>,
-}
-
-impl PrDetailPageModel {
-    pub fn merge_button_label(&self, header: &PrHeaderViewModel) -> String {
-        let (_, label, _, _) = self.merge_button(header);
-        label
-    }
-
-    pub fn merge_button_reason(&self, header: &PrHeaderViewModel) -> String {
-        let (_, _, reason, _) = self.merge_button(header);
-        reason
-    }
-
-    pub fn merge_button_disabled(&self, header: &PrHeaderViewModel) -> bool {
-        let (_, _, _, disabled) = self.merge_button(header);
-        disabled
-    }
-
-    fn merge_button(&self, header: &PrHeaderViewModel) -> (String, String, String, bool) {
-        let conversation = match self.conversation.value.as_ref() {
-            Some(conversation) => conversation,
-            None => {
-                return (
-                    "secondary".to_string(),
-                    "Loading".to_string(),
-                    "Pull request details are still loading".to_string(),
-                    true,
-                )
-            }
-        };
-
-        let has_failing_checks = conversation.detail.checks.failed > 0;
-        let has_pending_checks = conversation.detail.checks.pending > 0;
-        let mergeable_clean = header.mergeable.eq_ignore_ascii_case("MERGEABLE");
-
-        if header.can_reopen {
-            (
-                "secondary".to_string(),
-                "Cannot Merge".to_string(),
-                "PR is not open".to_string(),
-                true,
-            )
-        } else if !mergeable_clean {
-            (
-                "danger".to_string(),
-                "Blocked".to_string(),
-                "Merge conflicts or branch issues detected".to_string(),
-                true,
-            )
-        } else if has_failing_checks {
-            (
-                "warning".to_string(),
-                "Merge Risk".to_string(),
-                "One or more checks are failing".to_string(),
-                false,
-            )
-        } else if has_pending_checks {
-            (
-                "warning".to_string(),
-                "Merge Pending".to_string(),
-                "Checks are still running".to_string(),
-                false,
-            )
-        } else {
-            (
-                "approve".to_string(),
-                "Merge PR".to_string(),
-                "Ready to merge".to_string(),
-                false,
-            )
-        }
-    }
+    pub merge_button: Option<MergeButtonView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -366,19 +221,14 @@ pub struct PrChangesPageModel {
     pub page_title: String,
     pub refresh_path: String,
     pub needs_refresh: bool,
-    pub repo: crate::gh::models::RepoContext,
-    pub detail: Loadable<PullRequestDetail>,
+    pub files_loading: bool,
     pub header: Option<PrHeaderViewModel>,
-    pub files: Loadable<Vec<PullRequestFile>>,
     pub rendered_files: Vec<DiffFileView>,
     pub tree_items: Vec<DiffTreeItemView>,
-    pub flash: Option<FlashMessageView>,
     pub back_to_list_href: String,
     pub state_post_path: String,
     pub tabs: Vec<DetailTabView>,
 }
-
-impl PrChangesPageModel {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorPageModel {
@@ -488,6 +338,59 @@ pub fn pr_header_view(
     }
 }
 
+pub fn merge_button_view(detail: Option<&PullRequestDetail>) -> Option<MergeButtonView> {
+    let detail = detail?;
+    let has_failing_checks = detail.checks.failed > 0;
+    let has_pending_checks = detail.checks.pending > 0;
+    let mergeable_clean = detail.mergeable.eq_ignore_ascii_case("MERGEABLE");
+    let is_reopenable = detail.state.eq_ignore_ascii_case("CLOSED");
+
+    let (label, reason, disabled) = if is_reopenable {
+        (
+            "Cannot Merge".to_string(),
+            "PR is not open".to_string(),
+            true,
+        )
+    } else if !mergeable_clean {
+        (
+            "Blocked".to_string(),
+            "Merge conflicts or branch issues detected".to_string(),
+            true,
+        )
+    } else if has_failing_checks {
+        (
+            "Merge Risk".to_string(),
+            "One or more checks are failing".to_string(),
+            false,
+        )
+    } else if has_pending_checks {
+        (
+            "Merge Pending".to_string(),
+            "Checks are still running".to_string(),
+            false,
+        )
+    } else {
+        ("Merge PR".to_string(), "Ready to merge".to_string(), false)
+    };
+
+    Some(MergeButtonView {
+        label,
+        reason,
+        disabled,
+    })
+}
+
+pub fn error_page_model(error: &crate::gh::GhError) -> ErrorPageModel {
+    ErrorPageModel {
+        page_title: error.title().to_string(),
+        heading: error.title().to_string(),
+        status_code: error.status_code(),
+        message: error.message(),
+        remediation: error.remediation().to_string(),
+        details: error.details(),
+    }
+}
+
 fn check_jobs_view(jobs: Vec<StatusCheckJob>) -> Vec<CheckJobView> {
     jobs.into_iter()
         .map(|job| {
@@ -524,4 +427,8 @@ fn check_jobs_view(jobs: Vec<StatusCheckJob>) -> Vec<CheckJobView> {
             }
         })
         .collect()
+}
+
+pub fn diff_files_view(files: Vec<PullRequestFile>) -> (Vec<DiffTreeItemView>, Vec<DiffFileView>) {
+    super::helpers::diff_files_view(files)
 }

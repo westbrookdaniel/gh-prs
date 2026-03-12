@@ -1,12 +1,14 @@
 use crate::gh::models::RepoContext;
 use crate::handlers::context::{parse_pr_number, repo_from_request};
-use crate::handlers::flash::flash_from_query;
 use crate::handlers::format::{render_gh_error, render_template};
-use crate::handlers::load::{PageLoadMode, loadable_from_cached};
+use crate::handlers::load::PageLoadMode;
 use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
-use crate::views::{PrChangesTemplate, changes_page_model};
-use futures_lite::future;
+use crate::views::PrChangesTemplate;
+use crate::views::helpers::{
+    build_detail_tabs, default_list_back_href, repo_action_path, with_query,
+};
+use crate::views::types::{PrChangesPageModel, diff_files_view, pr_header_view};
 
 #[tracing::instrument(
     name = "handler.pull_request_changes",
@@ -17,90 +19,94 @@ use futures_lite::future;
     )
 )]
 pub async fn pull_request_changes(request: Request) -> Response {
-    let flash = flash_from_query(&request);
-    let state = app_state_snapshot();
-
-    if let Err(err) = state.startup_ready() {
-        return render_gh_error(err);
+    match build_changes_page_model(&request).await {
+        Ok(model) => {
+            let template = PrChangesTemplate { model };
+            render_template(200, "OK", &template)
+        }
+        Err(err) => render_gh_error(err),
     }
+}
 
-    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
-        Ok(repo) => repo,
-        Err(err) => return render_gh_error(err),
-    };
+async fn build_changes_page_model(request: &Request) -> crate::gh::GhResult<PrChangesPageModel> {
+    let state = app_state_snapshot();
+    state.startup_ready()?;
 
+    let repo_name = repo_from_request(request, state.startup_repo.as_ref())?;
     let repo_context = RepoContext {
         name_with_owner: repo_name.clone(),
         url: format!("https://github.com/{repo_name}"),
         viewer_permission: "UNKNOWN".to_string(),
         default_branch: "main".to_string(),
     };
+    let number = parse_pr_number(request)?;
+    let query = crate::search::SearchArgs::from_request(request).to_query_string();
+    let load_mode = PageLoadMode::from_request(request);
 
-    let number = match parse_pr_number(&request) {
-        Ok(number) => number,
-        Err(err) => return render_gh_error(err),
-    };
-
-    let load_mode = PageLoadMode::from_request(&request);
-
-    let detail_future = {
-        let gh = state.gh.clone();
-        let repo_name = repo_name.clone();
-        async move {
-            if load_mode.bypass_cache() {
-                gh.refresh_pull_request_conversation(&repo_name, number)
-                    .await
-                    .map(|value| crate::views::types::Loadable::ready(value.detail, false))
-            } else {
-                gh.cached_pull_request_conversation(&repo_name, number)
-                    .await
-                    .map(|value| match value {
-                        Some(cached) => crate::views::types::Loadable::ready(
-                            cached.value.detail,
-                            cached.is_stale,
-                        ),
-                        None => crate::views::types::Loadable::missing(),
-                    })
-            }
-        }
-    };
-    let files_future = {
-        let gh = state.gh.clone();
-        let repo_name = repo_name.clone();
-        async move {
-            if load_mode.bypass_cache() {
-                gh.refresh_pull_request_files(&repo_name, number)
-                    .await
-                    .map(|value| crate::views::types::Loadable::ready(value, false))
-            } else {
-                gh.cached_pull_request_files(&repo_name, number)
-                    .await
-                    .map(loadable_from_cached)
-            }
+    let (detail, detail_needs_refresh) = if load_mode.bypass_cache() {
+        (
+            Some(
+                state
+                    .gh
+                    .refresh_pull_request_conversation(&repo_name, number)
+                    .await?
+                    .detail,
+            ),
+            false,
+        )
+    } else {
+        match state
+            .gh
+            .cached_pull_request_conversation(&repo_name, number)
+            .await?
+        {
+            Some(cached) => (Some(cached.value.detail), cached.is_stale),
+            None => (None, true),
         }
     };
 
-    let (detail, files) = future::zip(detail_future, files_future).await;
-    let detail = match detail {
-        Ok(value) => value,
-        Err(err) => return render_gh_error(err),
+    let (files, files_needs_refresh) = if load_mode.bypass_cache() {
+        (
+            Some(
+                state
+                    .gh
+                    .refresh_pull_request_files(&repo_name, number)
+                    .await?,
+            ),
+            false,
+        )
+    } else {
+        match state
+            .gh
+            .cached_pull_request_files(&repo_name, number)
+            .await?
+        {
+            Some(cached) => (Some(cached.value), cached.is_stale),
+            None => (None, true),
+        }
     };
-    let files = match files {
-        Ok(value) => value,
-        Err(err) => return render_gh_error(err),
-    };
-    let needs_refresh =
-        !load_mode.bypass_cache() && (detail.needs_refresh() || files.needs_refresh());
 
-    let model = changes_page_model(
-        &repo_context,
-        number,
-        detail,
-        files,
-        needs_refresh,
-        flash,
-        &request,
-    );
-    let template = PrChangesTemplate { model };
-    render_template(200, "OK", &template)
+    let files_loading = files.is_none();
+    let (tree_items, rendered_files) = files.map(diff_files_view).unwrap_or_default();
+    let header = detail
+        .as_ref()
+        .map(|detail| pr_header_view(&repo_context, detail));
+
+    Ok(PrChangesPageModel {
+        page_title: format!("PR #{number} Changes"),
+        refresh_path: with_query(request.path.clone(), request.query.as_deref()),
+        needs_refresh: !load_mode.bypass_cache() && (detail_needs_refresh || files_needs_refresh),
+        files_loading,
+        header,
+        rendered_files,
+        tree_items,
+        back_to_list_href: default_list_back_href(query.as_deref()),
+        state_post_path: repo_action_path(
+            &repo_context.name_with_owner,
+            number,
+            "state",
+            query.as_deref(),
+        ),
+        tabs: build_detail_tabs(&repo_context, number, query.as_deref(), true),
+    })
 }

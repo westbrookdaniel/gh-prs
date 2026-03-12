@@ -1,4 +1,4 @@
-{% if let Some(results) = model.results.value %}
+{% if let Some(results) = model.results %}
 {% if results.is_empty() %}
 <p>No pull requests found.</p>
 {% else %}
@@ -8,14 +8,14 @@
     {% for row in results %}
     <div class="table-like-row grid-cols-pr-list" role="row">
       <div class="table-like-cell" role="cell">{{ row.repository_name_with_owner }}</div>
-      <div class="table-like-cell" role="cell">{{ model.state_label(row) }}</div>
+      <div class="table-like-cell" role="cell">{{ row.state_label }}</div>
       <div class="table-like-cell" role="cell">
-        <a href="{{ model.detail_path(row) }}" class="block truncate">#{{ row.number }} · {{ row.title }}</a>
+        <a href="{{ row.detail_path }}" class="block truncate">#{{ row.number }} · {{ row.title }}</a>
       </div>
       <div class="table-like-cell" role="cell">{{ row.author }}</div>
       <div class="table-like-cell" role="cell">{{ row.comment_count }}</div>
       <div class="table-like-cell" role="cell">
-        <time data-time-ago datetime="{{ row.updated_at }}">{{ model.formatted_updated_at(row) }}</time>
+        <time data-time-ago datetime="{{ row.updated_at }}">{{ row.updated_at_display }}</time>
       </div>
     </div>
     {% endfor %}
@@ -36,9 +36,9 @@
 {% endif %}
 
 <footer class="mx-auto py-4 px-2 w-full text-center">
-  {% if model.has_results_limit_warning() %}
+  {% if model.has_results_limit_warning %}
   <p>100+ results</p>
   {% else %}
-  <p>{{ model.row_count() }} results</p>
+  <p>{{ model.row_count }} results</p>
   {% endif %}
 </footer>

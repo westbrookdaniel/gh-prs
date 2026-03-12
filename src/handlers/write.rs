@@ -1,12 +1,11 @@
 use crate::gh::client::{MergeMethod, PullRequestStateTransition, ReviewEvent};
 use crate::handlers::context::{parse_pr_number, repo_from_request};
-use crate::handlers::flash::{redirect_to_repo_pr, redirect_with_flash};
+use crate::handlers::format::render_gh_error;
 use crate::handlers::forms::{
     CommentForm, MergeForm, ReviewForm, ReviewersForm, StateForm, parse_form,
 };
 use crate::handlers::state::app_state_snapshot;
 use crate::http::{Request, Response};
-use crate::views::FlashMessageView;
 
 #[tracing::instrument(
     name = "handler.submit_comment",
@@ -17,53 +16,34 @@ use crate::views::FlashMessageView;
     )
 )]
 pub async fn submit_comment(request: Request) -> Response {
-    let state = app_state_snapshot();
-
-    if let Err(err) = state.startup_ready() {
-        return redirect_with_flash("/prs", FlashMessageView::error(err.message()));
+    let result = submit_comment_inner(&request).await;
+    match result {
+        Ok(location) => redirect(&location),
+        Err(err) => render_gh_error(err),
     }
+}
 
-    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
-        Ok(repo) => repo,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
+async fn submit_comment_inner(request: &Request) -> crate::gh::GhResult<String> {
+    let state = app_state_snapshot();
+    state.startup_ready()?;
 
-    let number = match parse_pr_number(&request) {
-        Ok(number) => number,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
+    let repo_name = repo_from_request(request, state.startup_repo.as_ref())?;
+    let number = parse_pr_number(request)?;
+    let form =
+        parse_form::<CommentForm>(request).map_err(|err| crate::gh::GhError::InvalidInput {
+            field: "comment".to_string(),
+            details: format!("unable to parse comment form: {err}"),
+        })?;
 
-    let form = match parse_form::<CommentForm>(&request) {
-        Ok(form) => form,
-        Err(err) => {
-            return redirect_to_repo_pr(
-                &repo_name,
-                number,
-                FlashMessageView::error(format!("Unable to parse comment form: {err}")),
-                request.query.as_deref(),
-            );
-        }
-    };
-
-    let result = state
+    state
         .gh
         .submit_comment(&repo_name, number, &form.body)
-        .await;
-
-    match result {
-        Ok(()) => redirect_to_repo_pr(
-            &repo_name,
-            number,
-            FlashMessageView::success("Comment posted."),
-            request.query.as_deref(),
-        ),
-        Err(err) => redirect_to_repo_pr(
-            &repo_name,
-            number,
-            FlashMessageView::error(err.message()),
-            request.query.as_deref(),
-        ),
-    }
+        .await?;
+    Ok(repo_pr_location(
+        &repo_name,
+        number,
+        request.query.as_deref(),
+    ))
 }
 
 #[tracing::instrument(
@@ -75,72 +55,36 @@ pub async fn submit_comment(request: Request) -> Response {
     )
 )]
 pub async fn submit_review(request: Request) -> Response {
-    let state = app_state_snapshot();
-
-    if let Err(err) = state.startup_ready() {
-        return redirect_with_flash("/prs", FlashMessageView::error(err.message()));
+    let result = submit_review_inner(&request).await;
+    match result {
+        Ok(location) => redirect(&location),
+        Err(err) => render_gh_error(err),
     }
+}
 
-    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
-        Ok(repo) => repo,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
+async fn submit_review_inner(request: &Request) -> crate::gh::GhResult<String> {
+    let state = app_state_snapshot();
+    state.startup_ready()?;
 
-    let number = match parse_pr_number(&request) {
-        Ok(number) => number,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
+    let repo_name = repo_from_request(request, state.startup_repo.as_ref())?;
+    let number = parse_pr_number(request)?;
+    let form =
+        parse_form::<ReviewForm>(request).map_err(|err| crate::gh::GhError::InvalidInput {
+            field: "review".to_string(),
+            details: format!("unable to parse review form: {err}"),
+        })?;
+    let event = ReviewEvent::parse(&form.event)?;
 
-    let form = match parse_form::<ReviewForm>(&request) {
-        Ok(form) => form,
-        Err(err) => {
-            return redirect_to_repo_pr(
-                &repo_name,
-                number,
-                FlashMessageView::error(format!("Unable to parse review form: {err}")),
-                request.query.as_deref(),
-            );
-        }
-    };
-
-    let event = match ReviewEvent::parse(&form.event) {
-        Ok(event) => event,
-        Err(err) => {
-            return redirect_to_repo_pr(
-                &repo_name,
-                number,
-                FlashMessageView::error(err.message()),
-                request.query.as_deref(),
-            );
-        }
-    };
-
-    let result = state
+    state
         .gh
         .submit_review(&repo_name, number, event, &form.body)
-        .await;
+        .await?;
 
-    match result {
-        Ok(()) => {
-            let event_text = match event {
-                ReviewEvent::Approve => "Review submitted: approved.",
-                ReviewEvent::Comment => "Review submitted: comment.",
-                ReviewEvent::RequestChanges => "Review submitted: changes requested.",
-            };
-            redirect_to_repo_pr(
-                &repo_name,
-                number,
-                FlashMessageView::success(event_text),
-                request.query.as_deref(),
-            )
-        }
-        Err(err) => redirect_to_repo_pr(
-            &repo_name,
-            number,
-            FlashMessageView::error(err.message()),
-            request.query.as_deref(),
-        ),
-    }
+    Ok(repo_pr_location(
+        &repo_name,
+        number,
+        request.query.as_deref(),
+    ))
 }
 
 #[tracing::instrument(
@@ -152,33 +96,24 @@ pub async fn submit_review(request: Request) -> Response {
     )
 )]
 pub async fn update_reviewers(request: Request) -> Response {
-    let state = app_state_snapshot();
-
-    if let Err(err) = state.startup_ready() {
-        return redirect_with_flash("/prs", FlashMessageView::error(err.message()));
+    let result = update_reviewers_inner(&request).await;
+    match result {
+        Ok(location) => redirect(&location),
+        Err(err) => render_gh_error(err),
     }
+}
 
-    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
-        Ok(repo) => repo,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
+async fn update_reviewers_inner(request: &Request) -> crate::gh::GhResult<String> {
+    let state = app_state_snapshot();
+    state.startup_ready()?;
 
-    let number = match parse_pr_number(&request) {
-        Ok(number) => number,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
-
-    let form = match parse_form::<ReviewersForm>(&request) {
-        Ok(form) => form,
-        Err(err) => {
-            return redirect_to_repo_pr(
-                &repo_name,
-                number,
-                FlashMessageView::error(format!("Unable to parse reviewers form: {err}")),
-                request.query.as_deref(),
-            );
-        }
-    };
+    let repo_name = repo_from_request(request, state.startup_repo.as_ref())?;
+    let number = parse_pr_number(request)?;
+    let form =
+        parse_form::<ReviewersForm>(request).map_err(|err| crate::gh::GhError::InvalidInput {
+            field: "reviewers".to_string(),
+            details: format!("unable to parse reviewers form: {err}"),
+        })?;
 
     let reviewers = form
         .reviewers
@@ -193,25 +128,16 @@ pub async fn update_reviewers(request: Request) -> Response {
         })
         .collect::<Vec<String>>();
 
-    let result = state
+    state
         .gh
         .update_reviewers(&repo_name, number, reviewers)
-        .await;
+        .await?;
 
-    match result {
-        Ok(()) => redirect_to_repo_pr(
-            &repo_name,
-            number,
-            FlashMessageView::success("Reviewers updated."),
-            request.query.as_deref(),
-        ),
-        Err(err) => redirect_to_repo_pr(
-            &repo_name,
-            number,
-            FlashMessageView::error(err.message()),
-            request.query.as_deref(),
-        ),
-    }
+    Ok(repo_pr_location(
+        &repo_name,
+        number,
+        request.query.as_deref(),
+    ))
 }
 
 #[tracing::instrument(
@@ -223,66 +149,37 @@ pub async fn update_reviewers(request: Request) -> Response {
     )
 )]
 pub async fn merge_pull_request(request: Request) -> Response {
-    let state = app_state_snapshot();
-
-    if let Err(err) = state.startup_ready() {
-        return redirect_with_flash("/prs", FlashMessageView::error(err.message()));
+    let result = merge_pull_request_inner(&request).await;
+    match result {
+        Ok(location) => redirect(&location),
+        Err(err) => render_gh_error(err),
     }
+}
 
-    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
-        Ok(repo) => repo,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
+async fn merge_pull_request_inner(request: &Request) -> crate::gh::GhResult<String> {
+    let state = app_state_snapshot();
+    state.startup_ready()?;
 
-    let number = match parse_pr_number(&request) {
-        Ok(number) => number,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
-
-    let form = match parse_form::<MergeForm>(&request) {
-        Ok(form) => form,
-        Err(err) => {
-            return redirect_to_repo_pr(
-                &repo_name,
-                number,
-                FlashMessageView::error(format!("Unable to parse merge form: {err}")),
-                request.query.as_deref(),
-            );
-        }
-    };
-
-    let method = match MergeMethod::parse(&form.method) {
-        Ok(method) => method,
-        Err(err) => {
-            return redirect_to_repo_pr(
-                &repo_name,
-                number,
-                FlashMessageView::error(err.message()),
-                request.query.as_deref(),
-            );
-        }
-    };
-
+    let repo_name = repo_from_request(request, state.startup_repo.as_ref())?;
+    let number = parse_pr_number(request)?;
+    let form =
+        parse_form::<MergeForm>(request).map_err(|err| crate::gh::GhError::InvalidInput {
+            field: "merge".to_string(),
+            details: format!("unable to parse merge form: {err}"),
+        })?;
+    let method = MergeMethod::parse(&form.method)?;
     let delete_branch = form.delete_branch.as_deref() == Some("on");
-    let result = state
+
+    state
         .gh
         .merge_pull_request(&repo_name, number, method, delete_branch)
-        .await;
+        .await?;
 
-    match result {
-        Ok(()) => redirect_to_repo_pr(
-            &repo_name,
-            number,
-            FlashMessageView::success("Merge requested."),
-            request.query.as_deref(),
-        ),
-        Err(err) => redirect_to_repo_pr(
-            &repo_name,
-            number,
-            FlashMessageView::error(err.message()),
-            request.query.as_deref(),
-        ),
-    }
+    Ok(repo_pr_location(
+        &repo_name,
+        number,
+        request.query.as_deref(),
+    ))
 }
 
 #[tracing::instrument(
@@ -294,63 +191,56 @@ pub async fn merge_pull_request(request: Request) -> Response {
     )
 )]
 pub async fn update_pull_request_state(request: Request) -> Response {
-    let state = app_state_snapshot();
-
-    if let Err(err) = state.startup_ready() {
-        return redirect_with_flash("/prs", FlashMessageView::error(err.message()));
+    let result = update_pull_request_state_inner(&request).await;
+    match result {
+        Ok(location) => redirect(&location),
+        Err(err) => render_gh_error(err),
     }
+}
 
-    let repo_name = match repo_from_request(&request, state.startup_repo.as_ref()) {
-        Ok(repo) => repo,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
+async fn update_pull_request_state_inner(request: &Request) -> crate::gh::GhResult<String> {
+    let state = app_state_snapshot();
+    state.startup_ready()?;
 
-    let number = match parse_pr_number(&request) {
-        Ok(number) => number,
-        Err(err) => return redirect_with_flash("/prs", FlashMessageView::error(err.message())),
-    };
+    let repo_name = repo_from_request(request, state.startup_repo.as_ref())?;
+    let number = parse_pr_number(request)?;
+    let form =
+        parse_form::<StateForm>(request).map_err(|err| crate::gh::GhError::InvalidInput {
+            field: "state".to_string(),
+            details: format!("unable to parse state form: {err}"),
+        })?;
+    let transition = PullRequestStateTransition::parse(&form.state)?;
 
-    let form = match parse_form::<StateForm>(&request) {
-        Ok(form) => form,
-        Err(err) => {
-            return redirect_to_repo_pr(
-                &repo_name,
-                number,
-                FlashMessageView::error(format!("Unable to parse state form: {err}")),
-                request.query.as_deref(),
-            );
-        }
-    };
-
-    let transition = match PullRequestStateTransition::parse(&form.state) {
-        Ok(transition) => transition,
-        Err(err) => {
-            return redirect_to_repo_pr(
-                &repo_name,
-                number,
-                FlashMessageView::error(err.message()),
-                request.query.as_deref(),
-            );
-        }
-    };
-
-    let result = state
+    state
         .gh
         .update_pull_request_state(&repo_name, number, transition)
-        .await;
+        .await?;
 
-    match result {
-        Ok(()) => redirect_to_repo_pr(
-            &repo_name,
-            number,
-            FlashMessageView::success("Pull request state updated."),
-            request.query.as_deref(),
-        ),
-        Err(err) => redirect_to_repo_pr(
-            &repo_name,
-            number,
-            FlashMessageView::error(err.message()),
-            request.query.as_deref(),
-        ),
+    Ok(repo_pr_location(
+        &repo_name,
+        number,
+        request.query.as_deref(),
+    ))
+}
+
+fn redirect(location: &str) -> Response {
+    Response::new(303, "See Other")
+        .header("Location", location)
+        .text_body("See Other")
+}
+
+fn repo_pr_location(repo: &str, number: u64, query: Option<&str>) -> String {
+    let base = if let Some((owner, name)) = repo.split_once('/') {
+        format!("/repos/{owner}/{name}/prs/{number}")
+    } else {
+        format!("/prs/{number}")
+    };
+
+    if let Some(query) = query
+        && !query.is_empty()
+    {
+        return format!("{base}?{query}");
     }
+
+    base
 }

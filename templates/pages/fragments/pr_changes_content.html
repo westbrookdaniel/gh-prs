@@ -1,13 +1,11 @@
 <div class="page-stack">
   {% include "components/pr/pr_header_card.html" %}
 
-  {% include "components/shared/flash_banner.html" %}
-
   {% include "components/pr/pr_section_tabs.html" %}
 
   <section class="content-grid">
     <aside id="diff-file-tree" class="panel panel-pad">
-      {% if model.files.value.is_none() %}
+      {% if model.files_loading %}
       {% include "components/shared/loading_panel.html" %}
       {% else %}
       <div class="sidebar-list">
@@ -21,7 +19,7 @@
     </aside>
 
     <div class="page-stack">
-      {% if model.files.value.is_none() %}
+      {% if model.files_loading %}
       {% include "components/shared/loading_panel.html" %}
       {% else if model.rendered_files.is_empty() %}
       <section class="panel panel-pad"><p>No changed files were returned.</p></section>

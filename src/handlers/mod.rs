@@ -1,7 +1,6 @@
 pub mod changes;
 pub mod context;
 pub mod detail;
-pub mod flash;
 pub mod format;
 pub mod forms;
 pub mod health;
@@ -542,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn comment_post_redirects_with_success_flash() {
+    fn comment_post_redirects_back_to_pr() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
             set_app_state(state_with_responses(vec![ok("")]));
@@ -562,13 +561,40 @@ mod tests {
 
             assert_eq!(response.status_code(), 303);
             let location = header(&response, "Location").unwrap_or_default();
-            assert!(location.starts_with("/repos/acme/widgets/prs/7?org=acme"));
-            assert!(location.contains("flash=success"));
+            assert_eq!(location, "/repos/acme/widgets/prs/7?org=acme");
         });
     }
 
     #[test]
-    fn merge_post_redirects_with_success_flash() {
+    fn comment_post_renders_error_page_when_startup_failed() {
+        let _guard = acquire_test_lock();
+        smol::block_on(async {
+            set_app_state(AppState {
+                gh: GhClient::with_runner(Arc::new(MockRunner::default()), Duration::from_secs(3)),
+                startup_repo: None,
+                startup_error: Some(GhError::NotAuthenticated),
+                startup_elapsed: Duration::from_millis(15),
+            });
+
+            let response = submit_comment(
+                request("POST /prs/7/comment HTTP/1.1\r\nHost: localhost\r\nContent-Length: 8\r\n\r\nbody=hey")
+                    .with_params(
+                        [("number".to_string(), "7".to_string())]
+                            .into_iter()
+                            .collect(),
+                    ),
+            )
+            .await;
+
+            assert_eq!(response.status_code(), 503);
+            let body = body_text(&response);
+            assert!(body.contains("GitHub CLI Not Authenticated"));
+            assert!(body.contains("Run `gh auth login` and retry."));
+        });
+    }
+
+    #[test]
+    fn merge_post_redirects_back_to_pr() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
             set_app_state(state_with_responses(vec![ok("")]));
@@ -592,12 +618,12 @@ mod tests {
 
             assert_eq!(response.status_code(), 303);
             let location = header(&response, "Location").expect("location");
-            assert!(location.contains("flash=success"));
+            assert_eq!(location, "/repos/acme/widgets/prs/7");
         });
     }
 
     #[test]
-    fn state_post_redirects_with_success_flash() {
+    fn state_post_redirects_back_to_pr() {
         let _guard = acquire_test_lock();
         smol::block_on(async {
             set_app_state(state_with_responses(vec![ok("")]));
@@ -621,7 +647,7 @@ mod tests {
 
             assert_eq!(response.status_code(), 303);
             let location = header(&response, "Location").expect("location");
-            assert!(location.contains("flash=success"));
+            assert_eq!(location, "/repos/acme/widgets/prs/7");
         });
     }
 

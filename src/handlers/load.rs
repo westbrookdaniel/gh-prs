@@ -1,6 +1,4 @@
-use crate::gh::client::CachedValue;
 use crate::http::Request;
-use crate::views::types::Loadable;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageLoadMode {
@@ -19,13 +17,6 @@ impl PageLoadMode {
 
     pub fn bypass_cache(self) -> bool {
         matches!(self, Self::NoCache)
-    }
-}
-
-pub fn loadable_from_cached<T>(cached: Option<CachedValue<T>>) -> Loadable<T> {
-    match cached {
-        Some(cached) => Loadable::ready(cached.value, cached.is_stale),
-        None => Loadable::missing(),
     }
 }
 
