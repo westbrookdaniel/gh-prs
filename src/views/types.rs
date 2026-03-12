@@ -1,4 +1,5 @@
 use crate::gh::models::{PullRequestDetail, PullRequestFile, StatusCheckJob, StatusChecksSummary};
+use crate::views::helpers::format_timestamp;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoOptionView {
@@ -318,15 +319,15 @@ pub fn pr_header_view(
         url: detail.url.clone(),
         repo_name_with_owner: repo.name_with_owner.clone(),
         repo_url: repo.url.clone(),
-        state_label: super::helpers::state_label(detail.state.clone(), detail.is_draft),
+        state_label: state_label(detail.state.clone(), detail.is_draft),
         review_decision: detail
             .review_decision
             .clone()
             .unwrap_or_else(|| "NONE".to_string()),
         merge_state_status: detail.merge_state_status.clone(),
         author: detail.author.clone(),
-        created_at: super::helpers::format_timestamp(&detail.created_at),
-        updated_at: super::helpers::format_timestamp(&detail.updated_at),
+        created_at: format_timestamp(&detail.created_at),
+        updated_at: format_timestamp(&detail.updated_at),
         base_ref_name: detail.base_ref_name.clone(),
         head_ref_name: detail.head_ref_name.clone(),
         mergeable: detail.mergeable.clone(),
@@ -334,7 +335,7 @@ pub fn pr_header_view(
         can_close: detail.state.eq_ignore_ascii_case("OPEN"),
         can_reopen: detail.state.eq_ignore_ascii_case("CLOSED"),
         can_mark_ready: detail.is_draft,
-        merge_state_explainer: super::helpers::merge_state_explainer(&detail.merge_state_status),
+        merge_state_explainer: merge_state_explainer(&detail.merge_state_status),
     }
 }
 
@@ -431,4 +432,24 @@ fn check_jobs_view(jobs: Vec<StatusCheckJob>) -> Vec<CheckJobView> {
 
 pub fn diff_files_view(files: Vec<PullRequestFile>) -> (Vec<DiffTreeItemView>, Vec<DiffFileView>) {
     super::helpers::diff_files_view(files)
+}
+
+fn state_label(state: String, is_draft: bool) -> String {
+    if is_draft {
+        format!("{} · DRAFT", state)
+    } else {
+        state
+    }
+}
+
+fn merge_state_explainer(merge_state_status: &str) -> Option<String> {
+    let status = merge_state_status.trim().to_ascii_uppercase();
+    if status == "BEHIND" {
+        return Some(
+            "Behind means this branch is behind the base branch and may require an update before merge."
+                .to_string(),
+        );
+    }
+
+    None
 }

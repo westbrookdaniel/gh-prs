@@ -1,8 +1,8 @@
 pub mod helpers;
+pub mod paths;
 pub mod templates;
 pub mod types;
 
-pub use crate::search::SearchArgs;
 pub use templates::{
     ErrorTemplate, NotFoundTemplate, PrChangesTemplate, PrDetailTemplate, PrListTemplate,
 };
