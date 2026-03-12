@@ -1,8 +1,25 @@
+// @ts-check
+
+import { addGlobalStatus, removeGlobalStatus } from "./status.js";
+import { initializeThemeToggle } from "./theme.js";
+
+/** @typedef {HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement} FormControl */
+/** @typedef {{ main: HTMLElement, title: string }} ParsedNavigationDocument */
+/** @typedef {{ replaceHistory?: boolean, preserveScroll?: boolean, force?: boolean }} NavigateOptions */
+/** @typedef {{ status?: string, title?: string, author?: string, sort?: string, order?: string, repo?: string[] }} FilterState */
+
+/** @type {Window & typeof globalThis & {
+ *   __ghprsNavigate?: (url: string | URL, options?: NavigateOptions) => void,
+ *   Idiomorph?: { morph: (currentNode: Element, newNode: Element, options?: { morphStyle: string }) => void },
+ * }} */
+const appWindow = window;
+
+/** @type {AbortController | null} */
 let pendingNavigationController = null;
+/** @type {AbortController | null} */
 let pendingRefreshController = null;
 
 const STORAGE_KEYS = {
-  theme: "ghprs.theme",
   filters: "ghprs.prFilters.v3",
 };
 
@@ -11,56 +28,10 @@ const FILTER_FIELDS = ["status", "title", "author", "sort", "order"];
 const BATCH_NAV_COOLDOWN_MS = 450;
 let lastNavigationAt = 0;
 let timeAgoIntervalStarted = false;
-const globalStatuses = new Map();
 
-function globalStatusElements() {
-  const container = document.querySelector("[data-global-status]");
-  const text = document.querySelector("[data-global-status-text]");
-  return {
-    container: container instanceof HTMLElement ? container : null,
-    text: text instanceof HTMLElement ? text : null,
-  };
-}
-
-function renderGlobalStatus() {
-  const { container, text } = globalStatusElements();
-  if (!(container instanceof HTMLElement) || !(text instanceof HTMLElement)) {
-    return;
-  }
-
-  if (globalStatuses.size === 0) {
-    container.hidden = true;
-    text.textContent = "";
-    return;
-  }
-
-  const lastStatus = Array.from(globalStatuses.values()).at(-1);
-  container.hidden = false;
-  text.textContent = lastStatus ? lastStatus.message : "Working...";
-}
-
-function addGlobalStatus(key, message) {
-  if (typeof key !== "string" || key === "") {
-    return;
-  }
-
-  globalStatuses.delete(key);
-  globalStatuses.set(key, { message: typeof message === "string" && message !== "" ? message : "Working..." });
-  renderGlobalStatus();
-}
-
-function removeGlobalStatus(key) {
-  if (typeof key !== "string" || key === "") {
-    return;
-  }
-
-  globalStatuses.delete(key);
-  renderGlobalStatus();
-}
-
-window.addGlobalStatus = addGlobalStatus;
-window.removeGlobalStatus = removeGlobalStatus;
-
+/**
+ * @param {string} url
+ */
 function guardedNavigate(url) {
   const now = Date.now();
   if (now - lastNavigationAt < BATCH_NAV_COOLDOWN_MS) {
@@ -68,14 +39,17 @@ function guardedNavigate(url) {
   }
   lastNavigationAt = now;
 
-  if (typeof window.__ghprsNavigate === "function") {
-    window.__ghprsNavigate(url);
+  if (typeof appWindow.__ghprsNavigate === "function") {
+    appWindow.__ghprsNavigate(url);
     return;
   }
 
   window.location.assign(url);
 }
 
+/**
+ * @param {MouseEvent} event
+ */
 function isPrimaryNavigation(event) {
   return (
     event.button === 0 &&
@@ -87,6 +61,9 @@ function isPrimaryNavigation(event) {
   );
 }
 
+/**
+ * @param {HTMLAnchorElement} anchor
+ */
 function canInterceptAnchor(anchor) {
   if (anchor.hasAttribute("download")) {
     return false;
@@ -123,6 +100,11 @@ function canInterceptAnchor(anchor) {
   return true;
 }
 
+/**
+ * @param {HTMLFormElement} form
+ * @param {HTMLElement | undefined} submitter
+ * @returns {URLSearchParams}
+ */
 function serializeGetForm(form, submitter) {
   let formData;
   try {
@@ -145,6 +127,10 @@ function serializeGetForm(form, submitter) {
   return params;
 }
 
+/**
+ * @param {string} html
+ * @returns {ParsedNavigationDocument | null}
+ */
 function parseNavigationDocument(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const main = doc.querySelector("main.page");
@@ -158,6 +144,9 @@ function parseNavigationDocument(html) {
   };
 }
 
+/**
+ * @returns {HTMLElement | null}
+ */
 function currentMainPage() {
   const main = document.querySelector("main.page");
   return main instanceof HTMLElement ? main : null;
@@ -170,6 +159,9 @@ function cancelPendingRefresh() {
   }
 }
 
+/**
+ * @param {HTMLElement} main
+ */
 function clearRefreshStatus(main) {
   const status = main.querySelector("[data-page-refresh-status]");
   if (status instanceof HTMLElement) {
@@ -177,6 +169,10 @@ function clearRefreshStatus(main) {
   }
 }
 
+/**
+ * @param {HTMLElement} main
+ * @param {string} message
+ */
 function setRefreshStatus(main, message) {
   const status = main.querySelector("[data-page-refresh-status]");
   if (!(status instanceof HTMLElement)) {
@@ -190,61 +186,10 @@ function setRefreshStatus(main, message) {
   status.replaceChildren(alert);
 }
 
-function normalizeTheme(value) {
-  return value === "dark" ? "dark" : "light";
-}
-
-function preferredTheme() {
-  try {
-    const saved = window.localStorage.getItem(STORAGE_KEYS.theme);
-    if (saved === "light" || saved === "dark") {
-      return saved;
-    }
-  } catch {
-    return "light";
-  }
-
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-function updateThemeToggleLabel(button) {
-  const current = normalizeTheme(document.documentElement.dataset.theme || preferredTheme());
-  const isDark = current === "dark";
-  button.innerHTML = isDark
-    ? '<img src="/assets/icons/sun.svg" alt="" aria-hidden="true" /><span class="sr-only">Light mode</span>'
-    : '<img src="/assets/icons/moon.svg" alt="" aria-hidden="true" /><span class="sr-only">Dark mode</span>';
-  button.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
-}
-
-function applyTheme(theme) {
-  const normalized = normalizeTheme(theme);
-  document.documentElement.dataset.theme = normalized;
-  try {
-    window.localStorage.setItem(STORAGE_KEYS.theme, normalized);
-  } catch {
-    // ignore
-  }
-
-  const button = document.getElementById("theme-toggle");
-  if (button instanceof HTMLButtonElement) {
-    updateThemeToggleLabel(button);
-  }
-}
-
-function initializeThemeToggle() {
-  const button = document.getElementById("theme-toggle");
-  if (!(button instanceof HTMLButtonElement) || button.dataset.bound === "true") {
-    return;
-  }
-
-  button.dataset.bound = "true";
-  updateThemeToggleLabel(button);
-  button.addEventListener("click", () => {
-    const current = normalizeTheme(document.documentElement.dataset.theme || preferredTheme());
-    applyTheme(current === "dark" ? "light" : "dark");
-  });
-}
-
+/**
+ * @param {Date} date
+ * @returns {string}
+ */
 function formatRelativeTime(date) {
   const diffMs = date.getTime() - Date.now();
   const absSeconds = Math.abs(Math.round(diffMs / 1000));
@@ -277,6 +222,9 @@ function formatRelativeTime(date) {
   return formatter.format(Math.round(diffMs / 31557600000), "year");
 }
 
+/**
+ * @param {Document | HTMLElement} [root=document]
+ */
 function renderTimeAgoElements(root = document) {
   root.querySelectorAll("time[data-time-ago]").forEach((element) => {
     if (!(element instanceof HTMLTimeElement)) {
@@ -311,6 +259,9 @@ function initializeTimeAgo() {
   }, 60000);
 }
 
+/**
+ * @returns {HTMLFormElement | null}
+ */
 function getPrFilterForm() {
   const form = document.querySelector("[data-pr-filter-form]");
   return form instanceof HTMLFormElement ? form : null;
@@ -328,11 +279,18 @@ function hasQueryState() {
   });
 }
 
+/**
+ * @param {HTMLFormElement} form
+ * @returns {FilterState}
+ */
 function readCurrentFilterState(form) {
+  /** @type {FilterState} */
   const state = {};
   for (const field of FILTER_FIELDS) {
     const input = form.elements.namedItem(field);
-    if (!(input instanceof HTMLInputElement || input instanceof HTMLSelectElement)) {
+    if (
+      !(input instanceof HTMLInputElement || input instanceof HTMLSelectElement)
+    ) {
       continue;
     }
     const value = input.value.trim();
@@ -354,6 +312,9 @@ function readCurrentFilterState(form) {
   return state;
 }
 
+/**
+ * @returns {FilterState | null}
+ */
 function readSavedFilters() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEYS.filters);
@@ -364,12 +325,15 @@ function readSavedFilters() {
     if (!parsed || typeof parsed !== "object") {
       return null;
     }
-    return parsed;
+    return /** @type {FilterState} */ (parsed);
   } catch {
     return null;
   }
 }
 
+/**
+ * @param {FilterState} state
+ */
 function writeSavedFilters(state) {
   try {
     window.localStorage.setItem(STORAGE_KEYS.filters, JSON.stringify(state));
@@ -378,26 +342,39 @@ function writeSavedFilters(state) {
   }
 }
 
+/**
+ * @param {HTMLFormElement} form
+ * @param {FilterState} state
+ */
 function setFormValues(form, state) {
   for (const field of FILTER_FIELDS) {
     if (!(field in state)) {
       continue;
     }
     const input = form.elements.namedItem(field);
-    if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
+    if (
+      input instanceof HTMLInputElement ||
+      input instanceof HTMLSelectElement
+    ) {
       input.value = String(state[field]);
     }
   }
 
   const repoSelect = form.querySelector("[data-pr-filter-repos]");
   if (repoSelect instanceof HTMLSelectElement && Array.isArray(state.repo)) {
-    const selected = new Set(state.repo.filter((value) => typeof value === "string"));
+    const selected = new Set(
+      state.repo.filter((value) => typeof value === "string"),
+    );
     Array.from(repoSelect.options).forEach((option) => {
       option.selected = selected.has(option.value);
     });
   }
 }
 
+/**
+ * @param {FilterState} state
+ * @returns {string}
+ */
 function queryStringFromState(state) {
   const params = new URLSearchParams();
   for (const field of FILTER_FIELDS) {
@@ -460,19 +437,24 @@ function initializePrFilters() {
 }
 
 function initializeAutoSubmitControls() {
-  document.querySelectorAll("select[data-auto-submit='true']").forEach((control) => {
-    if (!(control instanceof HTMLSelectElement) || control.dataset.bound === "true") {
-      return;
-    }
-
-    control.dataset.bound = "true";
-    control.addEventListener("change", () => {
-      const form = control.closest("form");
-      if (form instanceof HTMLFormElement) {
-        form.requestSubmit();
+  document
+    .querySelectorAll("select[data-auto-submit='true']")
+    .forEach((control) => {
+      if (
+        !(control instanceof HTMLSelectElement) ||
+        control.dataset.bound === "true"
+      ) {
+        return;
       }
+
+      control.dataset.bound = "true";
+      control.addEventListener("change", () => {
+        const form = control.closest("form");
+        if (form instanceof HTMLFormElement) {
+          form.requestSubmit();
+        }
+      });
     });
-  });
 }
 
 function initializeDiffTreeButtons() {
@@ -507,6 +489,12 @@ function initializePageUi() {
   initializeDiffTreeButtons();
 }
 
+/**
+ * @param {ParsedNavigationDocument} parsed
+ * @param {URL} url
+ * @param {NavigateOptions} options
+ * @returns {boolean}
+ */
 function applyNavigationDocument(parsed, url, options) {
   const currentMain = currentMainPage();
   if (!(currentMain instanceof HTMLElement)) {
@@ -542,10 +530,16 @@ function applyNavigationDocument(parsed, url, options) {
   return true;
 }
 
+/**
+ * @param {boolean} isPending
+ */
 function setNavigationPending(isPending) {
   document.documentElement.classList.toggle("is-nav-pending", isPending);
 }
 
+/**
+ * @param {HTMLElement | null} [main=currentMainPage()]
+ */
 async function refreshPageData(main = currentMainPage()) {
   cancelPendingRefresh();
 
@@ -576,7 +570,9 @@ async function refreshPageData(main = currentMainPage()) {
       signal: controller.signal,
     });
 
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const contentType = (
+      response.headers.get("content-type") || ""
+    ).toLowerCase();
     if (!response.ok) {
       throw new Error(`Refresh failed (${response.status})`);
     }
@@ -594,11 +590,16 @@ async function refreshPageData(main = currentMainPage()) {
     if (!(currentMain instanceof HTMLElement) || currentMain !== main) {
       return;
     }
-    if (!window.Idiomorph || typeof window.Idiomorph.morph !== "function") {
+    if (
+      !appWindow.Idiomorph ||
+      typeof appWindow.Idiomorph.morph !== "function"
+    ) {
       throw new Error("Refresh support is unavailable.");
     }
 
-    window.Idiomorph.morph(currentMain, parsed.main, { morphStyle: "outerHTML" });
+    appWindow.Idiomorph.morph(currentMain, parsed.main, {
+      morphStyle: "outerHTML",
+    });
     if (parsed.title && parsed.title.trim() !== "") {
       document.title = parsed.title;
     }
@@ -615,7 +616,9 @@ async function refreshPageData(main = currentMainPage()) {
       if (activeMain) {
         setRefreshStatus(
           activeMain,
-          error instanceof Error ? error.message : "Unable to refresh page data.",
+          error instanceof Error
+            ? error.message
+            : "Unable to refresh page data.",
         );
       }
     }
@@ -627,6 +630,9 @@ async function refreshPageData(main = currentMainPage()) {
   }
 }
 
+/**
+ * @param {HTMLElement | null} [main=currentMainPage()]
+ */
 function initializePageRefresh(main = currentMainPage()) {
   if (!(main instanceof HTMLElement)) {
     return;
@@ -639,14 +645,25 @@ function initializePageRefresh(main = currentMainPage()) {
   });
 }
 
+/**
+ * @param {HTMLFormElement} form
+ */
 function nativeSubmitForm(form) {
   HTMLFormElement.prototype.submit.call(form);
 }
 
+/**
+ * @param {HTMLFormElement} form
+ * @param {HTMLElement | undefined} submitter
+ * @returns {string}
+ */
 function formStatusMessage(form, submitter) {
   if (submitter instanceof HTMLElement) {
     const submitterMessage = submitter.getAttribute("data-status-message");
-    if (typeof submitterMessage === "string" && submitterMessage.trim() !== "") {
+    if (
+      typeof submitterMessage === "string" &&
+      submitterMessage.trim() !== ""
+    ) {
       return submitterMessage.trim();
     }
   }
@@ -659,19 +676,33 @@ function formStatusMessage(form, submitter) {
   return "Submitting";
 }
 
+/**
+ * @param {HTMLFormElement} form
+ * @returns {string}
+ */
 function formStatusKey(form) {
   const action = form.getAttribute("action") || window.location.pathname;
   return `submit:${action}`;
 }
 
+/**
+ * @param {HTMLFormElement} form
+ * @param {HTMLElement | undefined} submitter
+ * @returns {() => void}
+ */
 function beginFormSubmissionState(form, submitter) {
-  const controls = Array.from(form.elements).filter(
-    (element) =>
+  /** @type {FormControl[]} */
+  const controls = [];
+  for (const element of Array.from(form.elements)) {
+    if (
       element instanceof HTMLButtonElement ||
       element instanceof HTMLInputElement ||
       element instanceof HTMLSelectElement ||
-      element instanceof HTMLTextAreaElement,
-  );
+      element instanceof HTMLTextAreaElement
+    ) {
+      controls.push(element);
+    }
+  }
 
   const snapshot = controls.map((control) => ({
     control,
@@ -702,8 +733,15 @@ function beginFormSubmissionState(form, submitter) {
   };
 }
 
+/**
+ * @param {HTMLFormElement} form
+ * @param {HTMLElement | undefined} submitter
+ */
 async function submitPostForm(form, submitter) {
-  const actionUrl = new URL(form.getAttribute("action") || window.location.href, window.location.href);
+  const actionUrl = new URL(
+    form.getAttribute("action") || window.location.href,
+    window.location.href,
+  );
   if (actionUrl.origin !== window.location.origin) {
     nativeSubmitForm(form);
     return;
@@ -733,7 +771,9 @@ async function submitPostForm(form, submitter) {
       redirect: "follow",
     });
 
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const contentType = (
+      response.headers.get("content-type") || ""
+    ).toLowerCase();
     if (!response.ok || !contentType.includes("text/html")) {
       window.location.assign(response.url || actionUrl.toString());
       return;
@@ -746,8 +786,16 @@ async function submitPostForm(form, submitter) {
       return;
     }
 
-    const finalUrl = new URL(response.url || actionUrl.toString(), window.location.href);
-    if (!applyNavigationDocument(parsed, finalUrl, { replaceHistory: false, preserveScroll: false })) {
+    const finalUrl = new URL(
+      response.url || actionUrl.toString(),
+      window.location.href,
+    );
+    if (
+      !applyNavigationDocument(parsed, finalUrl, {
+        replaceHistory: false,
+        preserveScroll: false,
+      })
+    ) {
       window.location.assign(finalUrl.toString());
     }
   } catch {
@@ -758,6 +806,10 @@ async function submitPostForm(form, submitter) {
   }
 }
 
+/**
+ * @param {string | URL} urlLike
+ * @param {NavigateOptions} [options={}]
+ */
 async function navigate(urlLike, options = {}) {
   const url = new URL(urlLike, window.location.href);
   const replaceHistory = options.replaceHistory === true;
@@ -783,7 +835,9 @@ async function navigate(urlLike, options = {}) {
       signal: controller.signal,
     });
 
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const contentType = (
+      response.headers.get("content-type") || ""
+    ).toLowerCase();
     if (!response.ok || !contentType.includes("text/html")) {
       window.location.assign(url.toString());
       return;
@@ -796,8 +850,16 @@ async function navigate(urlLike, options = {}) {
       return;
     }
 
-    const finalUrl = new URL(response.url || url.toString(), window.location.href);
-    if (!applyNavigationDocument(parsed, finalUrl, { replaceHistory, preserveScroll })) {
+    const finalUrl = new URL(
+      response.url || url.toString(),
+      window.location.href,
+    );
+    if (
+      !applyNavigationDocument(parsed, finalUrl, {
+        replaceHistory,
+        preserveScroll,
+      })
+    ) {
       window.location.assign(url.toString());
     }
   } catch (error) {
@@ -812,12 +874,19 @@ async function navigate(urlLike, options = {}) {
   }
 }
 
-window.__ghprsNavigate = (url, options = {}) => {
+appWindow.__ghprsNavigate = (url, options = {}) => {
   void navigate(url, options);
 };
 
-document.addEventListener("click", (event) => {
+/**
+ * @param {MouseEvent} event
+ */
+function handleDocumentClick(event) {
   if (!isPrimaryNavigation(event)) {
+    return;
+  }
+
+  if (!(event.target instanceof Element)) {
     return;
   }
 
@@ -832,9 +901,12 @@ document.addEventListener("click", (event) => {
 
   event.preventDefault();
   void navigate(anchor.href);
-});
+}
 
-document.addEventListener("submit", (event) => {
+/**
+ * @param {SubmitEvent} event
+ */
+function handleDocumentSubmit(event) {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) {
     return;
@@ -843,7 +915,8 @@ document.addEventListener("submit", (event) => {
   const method = (form.getAttribute("method") || "get").toUpperCase();
   if (method === "POST") {
     event.preventDefault();
-    const submitter = event.submitter instanceof HTMLElement ? event.submitter : undefined;
+    const submitter =
+      event.submitter instanceof HTMLElement ? event.submitter : undefined;
     void submitPostForm(form, submitter);
     return;
   }
@@ -852,18 +925,25 @@ document.addEventListener("submit", (event) => {
     return;
   }
 
-  const actionUrl = new URL(form.getAttribute("action") || window.location.href, window.location.href);
+  const actionUrl = new URL(
+    form.getAttribute("action") || window.location.href,
+    window.location.href,
+  );
   if (actionUrl.origin !== window.location.origin) {
     return;
   }
 
   event.preventDefault();
 
-  const submitter = event.submitter instanceof HTMLElement ? event.submitter : undefined;
+  const submitter =
+    event.submitter instanceof HTMLElement ? event.submitter : undefined;
   actionUrl.search = serializeGetForm(form, submitter).toString();
   actionUrl.hash = "";
   void navigate(actionUrl.toString());
-});
+}
+
+document.addEventListener("click", handleDocumentClick);
+document.addEventListener("submit", handleDocumentSubmit);
 
 window.addEventListener("popstate", () => {
   void navigate(window.location.href, {

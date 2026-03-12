@@ -234,32 +234,8 @@ impl PrListPageModel {
         )
     }
 
-    pub fn author_avatar_fallback(&self, item: &PullRequestSearchItem) -> bool {
-        self.author_avatar_url(item).trim().is_empty()
-    }
-
-    pub fn author_avatar_url(&self, item: &PullRequestSearchItem) -> String {
-        super::helpers::author_avatar_url(&item.author, &item.author_avatar_url)
-    }
-
-    pub fn author_avatar_style(&self, item: &PullRequestSearchItem) -> String {
-        super::helpers::avatar_style_from_author(&item.author)
-    }
-
-    pub fn author_initial(&self, item: &PullRequestSearchItem) -> String {
-        super::helpers::author_initial(&item.author)
-    }
-
     pub fn state_label(&self, item: &PullRequestSearchItem) -> String {
         super::helpers::state_label(item.state.clone(), item.is_draft)
-    }
-
-    pub fn state_tone(&self, item: &PullRequestSearchItem) -> String {
-        super::helpers::pr_state_tone(&item.state, item.is_draft)
-    }
-
-    pub fn state_tooltip(&self, item: &PullRequestSearchItem) -> String {
-        super::helpers::pr_state_tooltip(&item.state, item.is_draft)
     }
 
     pub fn formatted_updated_at(&self, item: &PullRequestSearchItem) -> String {
@@ -294,32 +270,12 @@ impl PrDetailPageModel {
         super::helpers::state_label(detail.state.clone(), detail.is_draft)
     }
 
-    pub fn state_tone(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::pr_state_tone(&detail.state, detail.is_draft)
-    }
-
-    pub fn state_tooltip(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::pr_state_tooltip(&detail.state, detail.is_draft)
-    }
-
-    pub fn draft_tooltip(&self) -> &'static str {
-        "Draft pull request; not ready to merge"
-    }
-
     pub fn formatted_created_at(&self, detail: &PullRequestDetail) -> String {
         super::helpers::format_timestamp(&detail.created_at)
     }
 
     pub fn formatted_updated_at(&self, detail: &PullRequestDetail) -> String {
         super::helpers::format_timestamp(&detail.updated_at)
-    }
-
-    pub fn merge_state_tone(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::merge_state_tone(&detail.merge_state_status, &detail.mergeable)
-    }
-
-    pub fn merge_state_tooltip(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::merge_state_tooltip(&detail.merge_state_status, &detail.mergeable)
     }
 
     pub fn merge_state_explainer(&self, detail: &PullRequestDetail) -> Option<String> {
@@ -330,25 +286,12 @@ impl PrDetailPageModel {
         detail.review_decision.as_deref().unwrap_or("NONE")
     }
 
-    pub fn review_decision_tone(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::review_decision_tone(self.review_decision(detail))
-    }
-
-    pub fn review_decision_tooltip(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::review_decision_tooltip(self.review_decision(detail))
-    }
-
     pub fn is_open(&self, detail: &PullRequestDetail) -> bool {
         detail.state.eq_ignore_ascii_case("OPEN")
     }
 
     pub fn is_closed(&self, detail: &PullRequestDetail) -> bool {
         detail.state.eq_ignore_ascii_case("CLOSED")
-    }
-
-    pub fn merge_button_tone(&self, detail: &PullRequestDetail) -> String {
-        let (tone, _, _, _) = self.merge_button(detail);
-        tone
     }
 
     pub fn merge_button_label(&self, detail: &PullRequestDetail) -> String {
@@ -431,14 +374,6 @@ impl PrChangesPageModel {
         super::helpers::state_label(detail.state.clone(), detail.is_draft)
     }
 
-    pub fn state_tone(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::pr_state_tone(&detail.state, detail.is_draft)
-    }
-
-    pub fn state_tooltip(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::pr_state_tooltip(&detail.state, detail.is_draft)
-    }
-
     pub fn is_open(&self, detail: &PullRequestDetail) -> bool {
         detail.state.eq_ignore_ascii_case("OPEN")
     }
@@ -461,18 +396,6 @@ impl PrChangesPageModel {
 
     pub fn merge_state_explainer(&self, detail: &PullRequestDetail) -> Option<String> {
         super::helpers::merge_state_explainer(&detail.merge_state_status)
-    }
-
-    pub fn draft_tooltip(&self) -> &'static str {
-        "Draft pull request; not ready to merge"
-    }
-
-    pub fn merge_state_tone(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::merge_state_tone(&detail.merge_state_status, &detail.mergeable)
-    }
-
-    pub fn merge_state_tooltip(&self, detail: &PullRequestDetail) -> String {
-        super::helpers::merge_state_tooltip(&detail.merge_state_status, &detail.mergeable)
     }
 }
 

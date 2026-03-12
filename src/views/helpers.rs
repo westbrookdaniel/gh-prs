@@ -24,35 +24,6 @@ pub fn state_label(state: String, is_draft: bool) -> String {
     }
 }
 
-pub fn pr_state_tone(state: &str, is_draft: bool) -> String {
-    if is_draft {
-        return "state-draft".to_string();
-    }
-
-    match state.trim().to_ascii_uppercase().as_str() {
-        "OPEN" => "state-open".to_string(),
-        "MERGED" => "state-merged".to_string(),
-        "CLOSED" => "state-closed".to_string(),
-        _ => "state-neutral".to_string(),
-    }
-}
-
-pub fn pr_state_tooltip(state: &str, is_draft: bool) -> String {
-    if is_draft {
-        return "Draft pull request; not ready to merge".to_string();
-    }
-
-    match state.trim().to_ascii_uppercase().as_str() {
-        "OPEN" => "Open pull request".to_string(),
-        "MERGED" => "Pull request merged".to_string(),
-        "CLOSED" => "Pull request closed without merge".to_string(),
-        value if value.contains("DIRTY") => {
-            "Merge is blocked by conflicts with base branch".to_string()
-        }
-        _ => "Pull request state".to_string(),
-    }
-}
-
 pub fn review_decision_tone(value: &str) -> String {
     match value.trim().to_ascii_uppercase().as_str() {
         "APPROVED" => "state-approved".to_string(),
@@ -71,46 +42,6 @@ pub fn review_decision_tooltip(value: &str) -> String {
         "NONE" | "" => "No review decision yet".to_string(),
         _ => "Review decision state".to_string(),
     }
-}
-
-pub fn merge_state_tone(merge_state_status: &str, mergeable: &str) -> String {
-    let merge_state = merge_state_status.trim().to_ascii_uppercase();
-    let mergeable = mergeable.trim().to_ascii_uppercase();
-
-    if merge_state.contains("CONFLICT")
-        || merge_state == "DIRTY"
-        || merge_state == "BLOCKED"
-        || mergeable.contains("CONFLICT")
-    {
-        return "state-conflict".to_string();
-    }
-
-    if merge_state == "CLEAN" || mergeable == "MERGEABLE" {
-        return "state-merge".to_string();
-    }
-
-    "state-neutral".to_string()
-}
-
-pub fn merge_state_tooltip(merge_state_status: &str, mergeable: &str) -> String {
-    let merge_state = merge_state_status.trim().to_ascii_uppercase();
-    let mergeable = mergeable.trim().to_ascii_uppercase();
-
-    if merge_state.contains("CONFLICT")
-        || merge_state == "DIRTY"
-        || merge_state == "BLOCKED"
-        || mergeable.contains("CONFLICT")
-    {
-        return "Merge conflicts detected".to_string();
-    }
-    if merge_state == "CLEAN" || mergeable == "MERGEABLE" {
-        return "Ready to merge".to_string();
-    }
-    if merge_state == "BEHIND" {
-        return "Branch is behind base and may need update".to_string();
-    }
-
-    "Merge status".to_string()
 }
 
 pub fn review_state_tone(state: &str) -> String {
@@ -207,20 +138,6 @@ pub fn markdown_to_html(input: &str) -> String {
         .to_string()
 }
 
-pub fn author_avatar_url(author: &str, explicit: &str) -> String {
-    let explicit = explicit.trim();
-    if !explicit.is_empty() {
-        return explicit.to_string();
-    }
-
-    let slug = author.trim().trim_start_matches('@');
-    if slug.is_empty() || slug.eq_ignore_ascii_case("unknown") {
-        return String::new();
-    }
-
-    format!("https://github.com/{slug}.png?size=80")
-}
-
 pub fn merge_conversation_feed(
     issue_comments: Vec<IssueCommentView>,
     reviews: Vec<PullRequestReviewView>,
@@ -281,29 +198,6 @@ fn sort_key_timestamp(value: &str) -> i64 {
     DateTime::parse_from_rfc3339(value)
         .map(|parsed| parsed.timestamp())
         .unwrap_or_default()
-}
-
-pub fn author_initial(author: &str) -> String {
-    author
-        .chars()
-        .find(|ch| ch.is_alphanumeric())
-        .map(|ch| ch.to_ascii_uppercase().to_string())
-        .unwrap_or_else(|| "?".to_string())
-}
-
-pub fn avatar_style_from_author(author: &str) -> String {
-    let mut hash = 0u32;
-    for byte in author.as_bytes() {
-        hash = hash.wrapping_mul(31).wrapping_add(*byte as u32);
-    }
-
-    let hue = (hash % 360) as i32;
-    let saturation = 38 + ((hash / 360) % 22) as i32;
-    let lightness = 40 + ((hash / 8192) % 18) as i32;
-
-    format!(
-        "--avatar-bg: hsl({hue}deg {saturation}% {lightness}%); --avatar-fg: hsl({hue}deg 28% 95%);"
-    )
 }
 
 pub fn sort_controls(query: &SearchArgs) -> Vec<SortControlView> {
